@@ -75,6 +75,24 @@ export const ProductDiscoveryTicketsDraftSchema = z.object({
 });
 export type ProductDiscoveryTicketsDraft = z.infer<typeof ProductDiscoveryTicketsDraftSchema>;
 
+// FR-8: development/technical tickets, drafted from pasted "signed-off
+// design and developer specs" text rather than a BRD. No milestone concept
+// here -- that taxonomy is specific to Product Discovery (FR-7).
+export const DevTicketDraftSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().min(1),
+  sourceRefs: z
+    .array(SourceRefSchema)
+    .min(1, "every dev ticket must cite the design/spec notes it came from"),
+});
+export type DevTicketDraft = z.infer<typeof DevTicketDraftSchema>;
+
+export const DevelopmentTicketsDraftSchema = z.object({
+  tickets: z.array(DevTicketDraftSchema),
+  gaps: z.array(GapSchema),
+});
+export type DevelopmentTicketsDraft = z.infer<typeof DevelopmentTicketsDraftSchema>;
+
 // Hand-written JSON Schemas for the Anthropic tool_use input_schema. Kept in
 // lockstep with the Zod schemas above by the tests in tests/llm.test.ts
 // rather than generated, to avoid a codegen dependency for two small shapes.
@@ -160,6 +178,44 @@ export const PRODUCT_DISCOVERY_TICKETS_TOOL_JSON_SCHEMA = {
           },
         },
         required: ["milestone", "title", "description", "sourceRefs"],
+      },
+    },
+    gaps: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          section: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["section", "reason"],
+      },
+    },
+  },
+  required: ["tickets", "gaps"],
+} as const;
+
+export const DEVELOPMENT_TICKETS_TOOL_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    tickets: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          description: { type: "string" },
+          sourceRefs: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: { quoteOrParaphrase: { type: "string" } },
+              required: ["quoteOrParaphrase"],
+            },
+          },
+        },
+        required: ["title", "description", "sourceRefs"],
       },
     },
     gaps: {

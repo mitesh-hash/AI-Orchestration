@@ -35,8 +35,9 @@ model Transcript {
   rawText   String
   createdAt DateTime @default(now())
 
-  documents   RequirementDocument[]
-  actionItems ActionItem[]
+  documents    RequirementDocument[]
+  actionItems  ActionItem[]
+  devSpecNotes DevSpecNote[]
 }
 
 model RequirementDocument {
@@ -64,24 +65,48 @@ enum TicketType {
 model Ticket {
   id          String         @id @default(cuid())
   type        TicketType
-  // Only meaningful for PRODUCT_DISCOVERY tickets today ("User Journey" |
-  // "Design" | "FRD", enforced by the Zod schema at generation time, FR-7).
-  // Left as a free string rather than a Prisma enum because DEVELOPMENT
-  // tickets (FR-8, later) won't use this taxonomy.
+  // Only meaningful for PRODUCT_DISCOVERY tickets ("User Journey" | "Design"
+  // | "FRD", enforced by the Zod schema at generation time, FR-7). Left as a
+  // free string rather than a Prisma enum because DEVELOPMENT tickets don't
+  // use this taxonomy.
   milestone   String?
   title       String
   description String
-  // Citations back into the source BRD's content, mirroring how
-  // RequirementDocument cites the transcript (FR-2's traceability principle
-  // applied one level up the chain).
+  // Citations back into whichever source this ticket was drafted from --
+  // the BRD's content for PRODUCT_DISCOVERY (FR-7), the pasted spec/design
+  // text for DEVELOPMENT (FR-8). Same traceability principle as FR-2, one
+  // level up the chain either way.
   sourceRefs  Json
   status      DocumentStatus @default(DRAFT)
   approvedBy  String?
   approvedAt  DateTime?
   createdAt   DateTime       @default(now())
 
-  sourceDocumentId String
-  sourceDocument    RequirementDocument @relation(fields: [sourceDocumentId], references: [id])
+  // Exactly one of these two is set, enforced at the application layer
+  // (core/db/ticketRepository.ts) rather than a DB constraint: every write
+  // path is one of the two typed create functions there, neither of which
+  // can set both.
+  sourceDocumentId String?
+  sourceDocument    RequirementDocument? @relation(fields: [sourceDocumentId], references: [id])
+
+  sourceDevSpecId String?
+  sourceDevSpec   DevSpecNote? @relation(fields: [sourceDevSpecId], references: [id])
+}
+
+// FR-8's "signed-off design and developer specs" input, until FR-11
+// (wireframes) and FR-16 (developer spec generation) exist to produce this
+// automatically -- a BA pastes it as free text, same pattern as Transcript
+// for FR-1. Scoped to a transcript so it shows up alongside that feature's
+// BRD and tickets on the review page.
+model DevSpecNote {
+  id           String     @id @default(cuid())
+  transcriptId String
+  transcript   Transcript @relation(fields: [transcriptId], references: [id])
+  title        String?
+  rawText      String
+  createdAt    DateTime   @default(now())
+
+  tickets Ticket[]
 }
 
 model ActionItem {

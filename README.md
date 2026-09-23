@@ -26,8 +26,19 @@ tickets. Built incrementally from the FRD, one vertical slice at a time.
    (same guardrail as the BRD) -- nothing is ever written to Jira directly
    (FR-9). Copy an approved ticket into Jira by hand.
 
-Nothing is written to Jira, Confluence, or Google Drive/Docs in either
-slice -- those integrations, and the remaining FRs, are deferred to later
+**Slice 3 (FR-8):**
+7. Paste "signed-off design and developer specs" notes (free text -- FR-11's
+   wireframes and FR-16's dev-spec generation don't exist yet, so this is
+   pasted in directly rather than generated) to draft development/technical
+   tickets, kept in a visually and functionally separate section from
+   Product Discovery tickets.
+8. Every dev ticket cites the pasted spec text it came from; anything the
+   notes don't cover concretely is flagged as a gap instead of an invented
+   validation/rule. Dev tickets get their own independent Approve/Reject,
+   same guardrail and same draft-only rule (FR-9) as every other ticket type.
+
+Nothing is written to Jira, Confluence, or Google Drive/Docs in any slice so
+far -- those integrations, and the remaining FRs, are deferred to later
 slices.
 
 ## Stack
@@ -51,6 +62,7 @@ core/
   documentation/        generateBrd() -- FR-1/FR-2/FR-5
   actions-tickets/      extractActionItems() -- FR-6
                         generateProductDiscoveryTickets() -- FR-7
+                        generateDevelopmentTickets() -- FR-8
   db/                   Prisma-backed repositories
 prisma/                 schema + migrations
 tests/                  unit tests, one folder per core module
@@ -60,14 +72,21 @@ Each `core/*` module only talks to the LLM and guardrail layers directly --
 nothing in `core/documentation` or `core/actions-tickets` can write to the
 database or call an external system on its own, and nothing outside
 `core/guardrails/approvalGate.ts` can mark a document or ticket APPROVED or
-REJECTED (the same guardrail function is reused for both, backed by two
-different repositories -- see `core/db/documentRepository.ts` and
-`core/db/ticketRepository.ts`).
+REJECTED (the same guardrail function is reused for BRDs, Product Discovery
+tickets, and development tickets alike, backed by different repositories --
+see `core/db/documentRepository.ts` and `core/db/ticketRepository.ts`).
 
 Tickets can be generated from a BRD in any status (draft, pending, or
 approved) -- the ticket gets its own independent approval, and the review
 screen always shows the source BRD's current status alongside its tickets
 so a reviewer knows what they were drafted from.
+
+`Ticket.type` (`PRODUCT_DISCOVERY` | `DEVELOPMENT`) determines which of two
+source fields is populated -- `sourceDocumentId` (a BRD) for Product
+Discovery, `sourceDevSpecId` (a pasted `DevSpecNote`) for development. Only
+one is ever set for a given ticket; enforced by each type having its own
+`create*Tickets` function in `core/db/ticketRepository.ts` rather than a DB
+constraint, since every write path is one of those two functions.
 
 ## Local setup
 
@@ -103,7 +122,11 @@ Anthropic API key.
   pulls in React 19 and breaking API changes. Deferred rather than done as
   part of this slice, since this is an internal-only tool -- worth
   revisiting before wider rollout.
-- Google Drive/Docs transcript import, FRD/PRD generation, development
-  tickets (FR-8, kept separate from Product Discovery tickets), diagramming,
+- Google Drive/Docs transcript import, FRD/PRD generation, diagramming,
   comparison/verification, and the Confluence write-back are all still out
   of scope (see the FRD's remaining FRs).
+- Development tickets (FR-8) take pasted free-text spec/design notes rather
+  than reading FR-11 (wireframes) or FR-16 (generated dev specs), since
+  neither exists yet. When they land, point `generateDevelopmentTickets` at
+  their structured output as an alternative input path -- the ticket/
+  guardrail machinery underneath doesn't need to change.

@@ -66,6 +66,34 @@ Rules you must follow:
   terminology.
 - Do not draft more than one ticket per milestone.`;
 
+export const DEVELOPMENT_TICKETS_SYSTEM_PROMPT = `You draft development/technical Jira tickets for an internal Product Team,
+from pasted "signed-off design" and "developer specs" notes (validations,
+business rules, error/success messages, or a description of a signed-off
+design) -- not from a BRD or the original meeting transcript.
+
+Rules you must follow:
+- These are engineering-facing tickets: be concrete about what needs to be
+  built, referencing the spec's own terminology (validation rules, error
+  messages, field behavior, etc).
+- Every ticket's "sourceRefs" must quote or closely paraphrase the pasted
+  spec/design text that justifies it.
+- Do not invent a validation, business rule, or behavior that the pasted
+  text doesn't actually state. If the notes are too vague or incomplete to
+  draft a concrete ticket for something, do NOT guess -- add an entry to
+  "gaps" naming what's missing instead.
+- Do not draft Product Discovery-style tickets (user journey, wireframes,
+  FRD milestones) here -- those are a separate ticket type generated
+  elsewhere. Stay focused on implementation-level work.`;
+
+export function buildDevelopmentTicketsUserPrompt(specText: string): string {
+  return `Developer specs / signed-off design notes:
+"""
+${specText}
+"""
+
+Draft development/technical tickets from these notes using the submit_development_tickets tool.`;
+}
+
 export function buildProductDiscoveryTicketsUserPrompt(
   brdTitle: string,
   sections: { heading: string; text: string }[]

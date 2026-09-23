@@ -10,10 +10,16 @@ import {
   getDocument,
 } from "@/core/db/documentRepository";
 import { saveActionItems } from "@/core/db/actionItemRepository";
-import { createTickets, ticketApprovalRepo } from "@/core/db/ticketRepository";
+import {
+  createProductDiscoveryTickets,
+  createDevelopmentTickets,
+  ticketApprovalRepo,
+} from "@/core/db/ticketRepository";
+import { createDevSpecNote } from "@/core/db/devSpecNoteRepository";
 import { generateBrd } from "@/core/documentation/generateBrd";
 import { extractActionItems } from "@/core/actions-tickets/extractActionItems";
 import { generateProductDiscoveryTickets } from "@/core/actions-tickets/generateProductDiscoveryTickets";
+import { generateDevelopmentTickets } from "@/core/actions-tickets/generateDevelopmentTickets";
 import { approveDocument, rejectDocument } from "@/core/guardrails/approvalGate";
 import { readBrdContent } from "@/core/documentation/brdContent";
 
@@ -112,7 +118,7 @@ export async function generateTicketsAction(formData: FormData): Promise<void> {
         warnings.push(`Tickets not generated: ${result.reason}`);
       } else {
         if (result.tickets.length > 0) {
-          await createTickets(documentId, result.tickets);
+          await createProductDiscoveryTickets(documentId, result.tickets);
         }
         if (result.gaps.length > 0) {
           const gapSummary = result.gaps.map((g) => `${g.section}: ${g.reason}`).join(" | ");
@@ -128,8 +134,46 @@ export async function generateTicketsAction(formData: FormData): Promise<void> {
   redirect(`/review/${transcriptId}${query}`);
 }
 
-// FR-18/FR-19 for tickets -- identical guardrail, different repo. See the
-// comment on approveDocumentAction/rejectDocumentAction above.
+// FR-8/FR-9: saves a pasted "signed-off design and developer specs" note and
+// drafts development/technical tickets from it in one step, mirroring how
+// processTranscriptAction saves a transcript and generates a BRD together.
+// The note is always saved even if generation fails or is skipped, so the
+// input itself is never lost. Never calls Jira -- same draft-only pattern
+// as generateTicketsAction.
+export async function addDevSpecAndGenerateTicketsAction(formData: FormData): Promise<void> {
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+  const rawText = String(formData.get("rawText") ?? "");
+  const title = String(formData.get("title") ?? "").trim() || undefined;
+
+  const warnings: string[] = [];
+
+  const devSpecNote = await createDevSpecNote({ transcriptId, title, rawText });
+
+  try {
+    const result = await generateDevelopmentTickets(devSpecNote.rawText);
+    if (result.status === "insufficient_input") {
+      warnings.push(`Development tickets not generated: ${result.reason}`);
+    } else {
+      if (result.tickets.length > 0) {
+        await createDevelopmentTickets(devSpecNote.id, result.tickets);
+      }
+      if (result.gaps.length > 0) {
+        const gapSummary = result.gaps.map((g) => `${g.section}: ${g.reason}`).join(" | ");
+        warnings.push(`Some items were skipped: ${gapSummary}`);
+      }
+    }
+  } catch (err) {
+    warnings.push(`Development ticket generation failed: ${errorMessage(err)}`);
+  }
+
+  const query = warnings.length > 0 ? `?warning=${encodeURIComponent(warnings.join(" | "))}` : "";
+  redirect(`/review/${transcriptId}${query}`);
+}
+
+// FR-18/FR-19 for tickets -- identical guardrail, different repo. Reused
+// as-is for both Product Discovery and Development tickets: the guardrail
+// doesn't know or care which type it's approving. See the comment on
+// approveDocumentAction/rejectDocumentAction above.
 export async function approveTicketAction(formData: FormData): Promise<void> {
   const ticketId = String(formData.get("ticketId") ?? "");
   const approverName = String(formData.get("approverName") ?? "");

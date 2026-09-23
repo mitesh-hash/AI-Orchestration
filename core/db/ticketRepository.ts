@@ -1,9 +1,15 @@
 import { prisma } from "./prisma";
 import type { ApprovalRepo } from "../guardrails/approvalGate";
 import type { DocumentStatus } from "../guardrails/types";
-import type { TicketDraft } from "../llm/schemas";
+import type { TicketDraft, DevTicketDraft } from "../llm/schemas";
 
-export async function createTickets(sourceDocumentId: string, tickets: TicketDraft[]) {
+// FR-7: tickets sourced from a BRD (RequirementDocument). sourceDevSpecId is
+// deliberately left unset -- see the schema comment on Ticket for why the
+// two source fields never both get populated.
+export async function createProductDiscoveryTickets(
+  sourceDocumentId: string,
+  tickets: TicketDraft[]
+) {
   return prisma.$transaction(
     tickets.map((ticket) =>
       prisma.ticket.create({
@@ -21,9 +27,39 @@ export async function createTickets(sourceDocumentId: string, tickets: TicketDra
   );
 }
 
-export async function listTicketsForDocument(sourceDocumentId: string) {
+// FR-8: tickets sourced from a pasted DevSpecNote. sourceDocumentId is left
+// unset, mirroring createProductDiscoveryTickets.
+export async function createDevelopmentTickets(
+  sourceDevSpecId: string,
+  tickets: DevTicketDraft[]
+) {
+  return prisma.$transaction(
+    tickets.map((ticket) =>
+      prisma.ticket.create({
+        data: {
+          sourceDevSpecId,
+          type: "DEVELOPMENT",
+          title: ticket.title,
+          description: ticket.description,
+          sourceRefs: ticket.sourceRefs,
+          status: "PENDING_APPROVAL",
+        },
+      })
+    )
+  );
+}
+
+// All tickets for a transcript regardless of type/source -- Product
+// Discovery tickets reach it via the BRD's transcripts, development tickets
+// via their DevSpecNote's transcriptId.
+export async function listTicketsForTranscript(transcriptId: string) {
   return prisma.ticket.findMany({
-    where: { sourceDocumentId },
+    where: {
+      OR: [
+        { sourceDocument: { transcripts: { some: { id: transcriptId } } } },
+        { sourceDevSpec: { transcriptId } },
+      ],
+    },
     orderBy: { createdAt: "asc" },
   });
 }
