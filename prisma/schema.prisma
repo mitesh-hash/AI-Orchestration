@@ -1,0 +1,74 @@
+// Data model for the vertical slice: Transcript -> RequirementDocument (BRD)
+// and Transcript -> ActionItem, matching the entities in FRD Section 8 that
+// this slice actually touches. Ticket / Comparison / DecisionLogEntry are
+// deferred to the slices that need them (FR-7/8, FR-12/13) rather than
+// stubbed out ahead of time.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DocumentType {
+  BRD
+  FRD
+  PRD
+}
+
+// draft: just generated, not yet shown for review
+// pending_approval: shown to a reviewer, awaiting a decision
+// approved / rejected: terminal states set only via the approval guardrail
+enum DocumentStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+model Transcript {
+  id        String   @id @default(cuid())
+  source    String // 'paste' | 'upload' | 'google_doc' (google_doc deferred)
+  title     String?
+  meetingDate DateTime
+  rawText   String
+  createdAt DateTime @default(now())
+
+  documents   RequirementDocument[]
+  actionItems ActionItem[]
+}
+
+model RequirementDocument {
+  id         String         @id @default(cuid())
+  type       DocumentType
+  version    Int            @default(1)
+  // Structured content: { title, sections: [{ heading, text, sourceRefs }] }
+  content    Json
+  // Sections/points the source material didn't cover, per FR-5.
+  gaps       Json
+  status     DocumentStatus @default(DRAFT)
+  approvedBy String?
+  approvedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  transcripts Transcript[]
+}
+
+model ActionItem {
+  id           String     @id @default(cuid())
+  transcriptId String
+  transcript   Transcript @relation(fields: [transcriptId], references: [id])
+  description  String
+  // Always populated by the app layer with either the stated name or the
+  // literal "Owner not specified" (FR-6) -- never left blank or guessed.
+  owner        String
+  // Stored as the transcript's own words ("next Friday", "end of Q3"), not
+  // coerced into a Date -- doing so could silently fabricate a specific
+  // date the transcript never actually stated.
+  deadline     String?
+  status       String     @default("open")
+  createdAt    DateTime   @default(now())
+}
