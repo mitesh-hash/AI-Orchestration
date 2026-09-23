@@ -35,9 +35,10 @@ model Transcript {
   rawText   String
   createdAt DateTime @default(now())
 
-  documents    RequirementDocument[]
-  actionItems  ActionItem[]
-  devSpecNotes DevSpecNote[]
+  documents         RequirementDocument[]
+  actionItems       ActionItem[]
+  devSpecNotes      DevSpecNote[]
+  designSystemNotes DesignSystemNote[]
 }
 
 model RequirementDocument {
@@ -53,8 +54,10 @@ model RequirementDocument {
   approvedAt DateTime?
   createdAt  DateTime       @default(now())
 
-  transcripts Transcript[]
-  tickets     Ticket[]
+  transcripts   Transcript[]
+  tickets       Ticket[]
+  diagrams      Diagram[]
+  wireframeSets WireframeSet[]
 }
 
 enum TicketType {
@@ -107,6 +110,68 @@ model DevSpecNote {
   createdAt    DateTime   @default(now())
 
   tickets Ticket[]
+}
+
+enum DiagramType {
+  USER_FLOW
+}
+
+// FR-10: derived from an existing BRD's content, same source pattern as
+// FR-7's Product Discovery tickets (not a fresh paste -- the BRD already
+// describes the process). content is a validated graph: { title, nodes:
+// [{id,label,type,sourceRefs}], edges: [{from,to,label?}] }, rendered to
+// Mermaid syntax deterministically at display time (core/diagramming/
+// renderMermaid.ts) rather than trusting the LLM to emit Mermaid text
+// directly -- keeps the citation contract schema-enforceable per node.
+model Diagram {
+  id         String         @id @default(cuid())
+  type       DiagramType
+  content    Json
+  gaps       Json
+  status     DocumentStatus @default(DRAFT)
+  approvedBy String?
+  approvedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  sourceDocumentId String
+  sourceDocument   RequirementDocument @relation(fields: [sourceDocumentId], references: [id])
+}
+
+// FR-11's "existing design system" reference, until a real design-system /
+// Figma integration exists -- pasted as free text, same pattern as
+// DevSpecNote for FR-8. Scoped per-transcript for now; a follow-up slice
+// could make this reusable across transcripts instead of re-pasted each
+// time (see README).
+model DesignSystemNote {
+  id           String     @id @default(cuid())
+  transcriptId String
+  transcript   Transcript @relation(fields: [transcriptId], references: [id])
+  title        String?
+  rawText      String
+  createdAt    DateTime   @default(now())
+
+  wireframeSets WireframeSet[]
+}
+
+// FR-11: 2-3 rough wireframe options, grounded in both the BRD (why a
+// region exists) and a DesignSystemNote (how it should look). content is
+// { options: [{ name, regions: [{label,kind,sourceRefs}] }] }. The whole
+// set is approved/rejected together rather than option-by-option -- a
+// reviewer picks the set they're happy with as one decision, per FR-18.
+model WireframeSet {
+  id         String         @id @default(cuid())
+  content    Json
+  gaps       Json
+  status     DocumentStatus @default(DRAFT)
+  approvedBy String?
+  approvedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  sourceDocumentId String
+  sourceDocument   RequirementDocument @relation(fields: [sourceDocumentId], references: [id])
+
+  designSystemNoteId String
+  designSystemNote   DesignSystemNote @relation(fields: [designSystemNoteId], references: [id])
 }
 
 model ActionItem {

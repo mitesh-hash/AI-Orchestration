@@ -41,17 +41,25 @@ export function checkDevSpecInput(
   return checkNonEmptyText(rawText, "developer spec / design notes");
 }
 
+// FR-11: the pasted "existing design system" reference input.
+export function checkDesignSystemInput(
+  rawText: string | null | undefined
+): InputCheckResult {
+  return checkNonEmptyText(rawText, "design system notes");
+}
+
 // Same principle as checkTranscriptInput, one link further down the chain:
-// FR-7 drafts tickets from a BRD, so if that BRD has no sections yet
-// (generation failed, or was never run) say so explicitly instead of
-// calling the LLM with nothing to ground a ticket in.
+// FR-7/FR-10/FR-11 all draft something from a BRD, so if that BRD has no
+// sections yet (generation failed, or was never run) say so explicitly
+// instead of calling the LLM with nothing to ground anything in.
 export function checkBrdContentInput(
-  brd: { sections: unknown[] } | null | undefined
+  brd: { sections: unknown[] } | null | undefined,
+  purpose = "draft tickets from"
 ): InputCheckResult {
   if (!brd || !Array.isArray(brd.sections) || brd.sections.length === 0) {
     return {
       ok: false,
-      reason: "The source BRD has no sections to draft tickets from.",
+      reason: `The source BRD has no sections to ${purpose}.`,
     };
   }
   return { ok: true };

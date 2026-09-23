@@ -94,20 +94,102 @@ ${specText}
 Draft development/technical tickets from these notes using the submit_development_tickets tool.`;
 }
 
+// Shared by every prompt builder that hands the model a BRD's content
+// (Product Discovery tickets, the User Flow diagram, wireframe options).
+function formatBrdSections(sections: { heading: string; text: string }[]): string {
+  return sections.map((s) => `### ${s.heading}\n${s.text}`).join("\n\n");
+}
+
 export function buildProductDiscoveryTicketsUserPrompt(
   brdTitle: string,
   sections: { heading: string; text: string }[]
 ): string {
-  const sectionsBlock = sections
-    .map((s) => `### ${s.heading}\n${s.text}`)
-    .join("\n\n");
-
   return `BRD title: ${brdTitle}
 
 BRD sections:
 """
-${sectionsBlock}
+${formatBrdSections(sections)}
 """
 
 Draft Product Discovery tickets from this BRD using the submit_product_discovery_tickets tool.`;
+}
+
+export const USER_FLOW_DIAGRAM_SYSTEM_PROMPT = `You draft a User Flow diagram for an internal Product Team, from an
+already-drafted BRD (not the original transcript).
+
+Rules you must follow:
+- Model the flow as nodes and edges: exactly the process described in the
+  BRD, as a sequence of steps and decision points. Use "start" for where
+  the flow begins, "end" for where it terminates, "decision" for a genuine
+  branch point (e.g. validation pass/fail, user choice), and "step" for
+  everything else.
+- Every node's "sourceRefs" must quote or closely paraphrase the BRD text
+  that describes that step -- do not add a step the BRD doesn't describe.
+- Every edge must connect two node ids you actually declared in "nodes".
+  Label an edge (e.g. "yes"/"no") only when it's a branch out of a decision
+  node.
+- If the BRD only partially describes the process (e.g. it describes the
+  happy path but never says what happens on failure), do NOT invent the
+  missing branch -- add an entry to "gaps" naming what's missing and stop
+  the flow there instead.
+- Keep node labels short (a few words) -- this renders as an actual
+  diagram, not prose.`;
+
+export function buildUserFlowDiagramUserPrompt(
+  brdTitle: string,
+  sections: { heading: string; text: string }[]
+): string {
+  return `BRD title: ${brdTitle}
+
+BRD sections:
+"""
+${formatBrdSections(sections)}
+"""
+
+Draft a User Flow diagram from this BRD using the submit_user_flow_diagram tool.`;
+}
+
+export const WIREFRAME_OPTIONS_SYSTEM_PROMPT = `You draft 2-3 rough wireframe options for an internal Product Team, from an
+already-drafted BRD (what needs to exist on screen) and a pasted
+description of the team's existing design system (how things should look).
+
+Rules you must follow:
+- Each option is a stack of labeled regions (header, nav, hero, content,
+  card, form, button, footer, sidebar, or custom) in the order they'd
+  appear on the screen.
+- A region's "label" should name what it is AND, where the design-system
+  notes describe it, the specific convention it follows (e.g. "Primary CTA
+  button (dark blue rounded rect per design system)"). Do not invent a
+  visual style the design-system notes don't mention -- if they don't
+  describe something you need (e.g. no button style given), still include
+  the region but say so plainly in the label (e.g. "CTA button (style not
+  specified in design system)") and add a gap entry.
+- Every region's "sourceRefs" must quote or closely paraphrase either the
+  BRD (why this region needs to exist) or the design-system notes (how it
+  should look) -- whichever actually justifies it.
+- Aim for 2-3 genuinely distinct options (e.g. different layouts or
+  emphasis) where the BRD and design notes support that many. If you can
+  only justify one solid option, submit just one and explain why in "gaps"
+  rather than padding with a redundant or ungrounded second option.
+- These are rough layouts, not pixel-precise mockups -- keep region counts
+  reasonable (roughly 4-8 per option).`;
+
+export function buildWireframeOptionsUserPrompt(
+  brdTitle: string,
+  sections: { heading: string; text: string }[],
+  designSystemText: string
+): string {
+  return `BRD title: ${brdTitle}
+
+BRD sections:
+"""
+${formatBrdSections(sections)}
+"""
+
+Design system notes:
+"""
+${designSystemText}
+"""
+
+Draft 2-3 rough wireframe options from this BRD and design system using the submit_wireframe_options tool.`;
 }

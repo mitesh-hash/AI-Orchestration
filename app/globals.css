@@ -208,3 +208,59 @@ th {
   color: var(--text-muted);
   font-size: 0.85rem;
 }
+
+.mermaid-container {
+  margin-top: 0.5rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  background: #fff;
+}
+
+.mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Rough wireframe rendering (FR-11): plain labeled boxes, deliberately not
+   a polished mockup -- the point is the labeled content/grounding, not
+   visual fidelity. */
+.wireframe-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  max-width: 420px;
+}
+
+.wireframe-region {
+  border: 1px dashed #9aa3b2;
+  border-radius: 4px;
+  padding: 0.6rem 0.7rem;
+  font-size: 0.85rem;
+  background: var(--bg-muted);
+  position: relative;
+}
+
+.wireframe-region-kind {
+  display: inline-block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  margin-right: 0.5rem;
+  font-weight: 600;
+}
+
+.wireframe-region-header,
+.wireframe-region-nav,
+.wireframe-region-footer {
+  background: #eef1f6;
+}
+
+.wireframe-region-button {
+  background: #e7edfb;
+  max-width: 220px;
+  text-align: center;
+}

@@ -93,6 +93,84 @@ export const DevelopmentTicketsDraftSchema = z.object({
 });
 export type DevelopmentTicketsDraft = z.infer<typeof DevelopmentTicketsDraftSchema>;
 
+// FR-10: a User Flow diagram, modeled as a graph rather than freeform
+// Mermaid text -- forcing structure here is what keeps the citation
+// contract schema-enforceable per node. core/diagramming/renderMermaid.ts
+// deterministically turns a validated graph into Mermaid syntax.
+export const DIAGRAM_NODE_TYPES = ["start", "step", "decision", "end"] as const;
+
+export const DiagramNodeSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  type: z.enum(DIAGRAM_NODE_TYPES),
+  sourceRefs: z
+    .array(SourceRefSchema)
+    .min(1, "every diagram node must cite the BRD text it came from"),
+});
+export type DiagramNode = z.infer<typeof DiagramNodeSchema>;
+
+export const DiagramEdgeSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  label: z.string().min(1).optional(),
+});
+export type DiagramEdge = z.infer<typeof DiagramEdgeSchema>;
+
+export const UserFlowDiagramDraftSchema = z.object({
+  title: z.string().min(1),
+  nodes: z.array(DiagramNodeSchema).min(1),
+  edges: z.array(DiagramEdgeSchema),
+  gaps: z.array(GapSchema),
+});
+export type UserFlowDiagramDraft = z.infer<typeof UserFlowDiagramDraftSchema>;
+
+// FR-11: 2-3 rough wireframe options, each a stack of labeled regions. Kept
+// deliberately non-visual/non-pixel-precise ("rough") -- a region's label is
+// expected to name the design-system convention it follows (e.g. "Primary
+// CTA button (dark blue rounded rect per design system)"), which is what
+// satisfies "use the existing design system, don't invent new styles" at
+// the content level without needing real design tokens or image generation.
+export const WIREFRAME_REGION_KINDS = [
+  "header",
+  "nav",
+  "hero",
+  "content",
+  "card",
+  "form",
+  "button",
+  "footer",
+  "sidebar",
+  "custom",
+] as const;
+
+export const WireframeRegionSchema = z.object({
+  label: z.string().min(1),
+  kind: z.enum(WIREFRAME_REGION_KINDS),
+  // May cite the BRD (why this region exists) or the design-system notes
+  // (why it looks this way) -- both are supplied in the same prompt.
+  sourceRefs: z
+    .array(SourceRefSchema)
+    .min(1, "every wireframe region must cite the BRD or design-system notes it came from"),
+});
+export type WireframeRegion = z.infer<typeof WireframeRegionSchema>;
+
+export const WireframeOptionSchema = z.object({
+  name: z.string().min(1),
+  regions: z.array(WireframeRegionSchema).min(1),
+});
+export type WireframeOption = z.infer<typeof WireframeOptionSchema>;
+
+// FR-11 asks for "2-3" options, but the schema caps rather than requires
+// that range: forcing a minimum of 2 would pressure the model to pad with
+// an ungrounded second option when the BRD/design notes only support one.
+// The prompt asks for 2-3 where genuinely groundable; anything it can't
+// justify becomes a gap instead of a weak option.
+export const WireframeOptionsDraftSchema = z.object({
+  options: z.array(WireframeOptionSchema).min(1).max(3),
+  gaps: z.array(GapSchema),
+});
+export type WireframeOptionsDraft = z.infer<typeof WireframeOptionsDraftSchema>;
+
 // Hand-written JSON Schemas for the Anthropic tool_use input_schema. Kept in
 // lockstep with the Zod schemas above by the tests in tests/llm.test.ts
 // rather than generated, to avoid a codegen dependency for two small shapes.
@@ -193,6 +271,110 @@ export const PRODUCT_DISCOVERY_TICKETS_TOOL_JSON_SCHEMA = {
     },
   },
   required: ["tickets", "gaps"],
+} as const;
+
+export const USER_FLOW_DIAGRAM_TOOL_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    nodes: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          label: { type: "string" },
+          type: { type: "string", enum: [...DIAGRAM_NODE_TYPES] },
+          sourceRefs: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: { quoteOrParaphrase: { type: "string" } },
+              required: ["quoteOrParaphrase"],
+            },
+          },
+        },
+        required: ["id", "label", "type", "sourceRefs"],
+      },
+    },
+    edges: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          from: { type: "string" },
+          to: { type: "string" },
+          label: { type: "string" },
+        },
+        required: ["from", "to"],
+      },
+    },
+    gaps: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          section: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["section", "reason"],
+      },
+    },
+  },
+  required: ["title", "nodes", "edges", "gaps"],
+} as const;
+
+export const WIREFRAME_OPTIONS_TOOL_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    options: {
+      type: "array",
+      minItems: 1,
+      maxItems: 3,
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          regions: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                kind: { type: "string", enum: [...WIREFRAME_REGION_KINDS] },
+                sourceRefs: {
+                  type: "array",
+                  minItems: 1,
+                  items: {
+                    type: "object",
+                    properties: { quoteOrParaphrase: { type: "string" } },
+                    required: ["quoteOrParaphrase"],
+                  },
+                },
+              },
+              required: ["label", "kind", "sourceRefs"],
+            },
+          },
+        },
+        required: ["name", "regions"],
+      },
+    },
+    gaps: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          section: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["section", "reason"],
+      },
+    },
+  },
+  required: ["options", "gaps"],
 } as const;
 
 export const DEVELOPMENT_TICKETS_TOOL_JSON_SCHEMA = {

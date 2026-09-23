@@ -16,10 +16,18 @@ import {
   ticketApprovalRepo,
 } from "@/core/db/ticketRepository";
 import { createDevSpecNote } from "@/core/db/devSpecNoteRepository";
+import { createDiagram, diagramApprovalRepo } from "@/core/db/diagramRepository";
+import { createDesignSystemNote } from "@/core/db/designSystemNoteRepository";
+import {
+  createWireframeSet,
+  wireframeSetApprovalRepo,
+} from "@/core/db/wireframeSetRepository";
 import { generateBrd } from "@/core/documentation/generateBrd";
 import { extractActionItems } from "@/core/actions-tickets/extractActionItems";
 import { generateProductDiscoveryTickets } from "@/core/actions-tickets/generateProductDiscoveryTickets";
 import { generateDevelopmentTickets } from "@/core/actions-tickets/generateDevelopmentTickets";
+import { generateUserFlowDiagram } from "@/core/diagramming/generateUserFlowDiagram";
+import { generateWireframeOptions } from "@/core/diagramming/generateWireframeOptions";
 import { approveDocument, rejectDocument } from "@/core/guardrails/approvalGate";
 import { readBrdContent } from "@/core/documentation/brdContent";
 
@@ -189,5 +197,123 @@ export async function rejectTicketAction(formData: FormData): Promise<void> {
   const transcriptId = String(formData.get("transcriptId") ?? "");
 
   await rejectDocument(ticketApprovalRepo, ticketId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+// FR-10/FR-9-style draft-only rule: derives a User Flow diagram from an
+// existing BRD document. Never calls anything external -- writes a Diagram
+// row with status PENDING_APPROVAL, same review flow as everything else.
+export async function generateDiagramAction(formData: FormData): Promise<void> {
+  const documentId = String(formData.get("documentId") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  const warnings: string[] = [];
+
+  try {
+    const document = await getDocument(documentId);
+    const brdContent = document ? readBrdContent(document.content) : null;
+
+    if (!brdContent) {
+      warnings.push("Diagram not generated: could not read the source BRD's content.");
+    } else {
+      const result = await generateUserFlowDiagram(brdContent);
+      if (result.status === "insufficient_input") {
+        warnings.push(`Diagram not generated: ${result.reason}`);
+      } else {
+        await createDiagram(documentId, result.draft);
+        if (result.draft.gaps.length > 0) {
+          const gapSummary = result.draft.gaps.map((g) => `${g.section}: ${g.reason}`).join(" | ");
+          warnings.push(`Some parts of the flow were left out: ${gapSummary}`);
+        }
+      }
+    }
+  } catch (err) {
+    warnings.push(`Diagram generation failed: ${errorMessage(err)}`);
+  }
+
+  const query = warnings.length > 0 ? `?warning=${encodeURIComponent(warnings.join(" | "))}` : "";
+  redirect(`/review/${transcriptId}${query}`);
+}
+
+// FR-18/FR-19 for diagrams -- identical guardrail, different repo, same
+// reuse pattern as approveTicketAction/rejectTicketAction.
+export async function approveDiagramAction(formData: FormData): Promise<void> {
+  const diagramId = String(formData.get("diagramId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await approveDocument(diagramApprovalRepo, diagramId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+export async function rejectDiagramAction(formData: FormData): Promise<void> {
+  const diagramId = String(formData.get("diagramId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await rejectDocument(diagramApprovalRepo, diagramId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+// FR-11/FR-9-style draft-only rule: saves a pasted design-system note and
+// drafts 2-3 rough wireframe options from it plus the existing BRD, in one
+// step (same pattern as addDevSpecAndGenerateTicketsAction). The note is
+// always saved even if generation fails, so the input is never lost.
+export async function addDesignSystemNoteAndGenerateWireframesAction(
+  formData: FormData
+): Promise<void> {
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+  const documentId = String(formData.get("documentId") ?? "");
+  const rawText = String(formData.get("rawText") ?? "");
+  const title = String(formData.get("title") ?? "").trim() || undefined;
+
+  const warnings: string[] = [];
+
+  const designSystemNote = await createDesignSystemNote({ transcriptId, title, rawText });
+
+  try {
+    const document = await getDocument(documentId);
+    const brdContent = document ? readBrdContent(document.content) : null;
+
+    if (!brdContent) {
+      warnings.push("Wireframes not generated: could not read the source BRD's content.");
+    } else {
+      const result = await generateWireframeOptions(brdContent, designSystemNote.rawText);
+      if (result.status === "insufficient_input") {
+        warnings.push(`Wireframes not generated: ${result.reason}`);
+      } else {
+        await createWireframeSet(documentId, designSystemNote.id, result.draft);
+        if (result.draft.gaps.length > 0) {
+          const gapSummary = result.draft.gaps.map((g) => `${g.section}: ${g.reason}`).join(" | ");
+          warnings.push(`Some things weren't specified: ${gapSummary}`);
+        }
+      }
+    }
+  } catch (err) {
+    warnings.push(`Wireframe generation failed: ${errorMessage(err)}`);
+  }
+
+  const query = warnings.length > 0 ? `?warning=${encodeURIComponent(warnings.join(" | "))}` : "";
+  redirect(`/review/${transcriptId}${query}`);
+}
+
+// FR-18/FR-19 for wireframe sets -- the whole set of 2-3 options is
+// approved/rejected as one decision (see the schema comment on
+// WireframeSet). Same guardrail, different repo.
+export async function approveWireframeSetAction(formData: FormData): Promise<void> {
+  const wireframeSetId = String(formData.get("wireframeSetId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await approveDocument(wireframeSetApprovalRepo, wireframeSetId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+export async function rejectWireframeSetAction(formData: FormData): Promise<void> {
+  const wireframeSetId = String(formData.get("wireframeSetId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await rejectDocument(wireframeSetApprovalRepo, wireframeSetId, approverName);
   revalidatePath(`/review/${transcriptId}`);
 }

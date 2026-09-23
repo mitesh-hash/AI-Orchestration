@@ -4,8 +4,13 @@ import { listDocumentsForTranscript } from "@/core/db/documentRepository";
 import { listActionItemsForTranscript } from "@/core/db/actionItemRepository";
 import { listTicketsForTranscript } from "@/core/db/ticketRepository";
 import { listDevSpecNotesForTranscript } from "@/core/db/devSpecNoteRepository";
+import { listDiagramsForTranscript } from "@/core/db/diagramRepository";
+import { listDesignSystemNotesForTranscript } from "@/core/db/designSystemNoteRepository";
+import { listWireframeSetsForTranscript } from "@/core/db/wireframeSetRepository";
 import { UNSPECIFIED_OWNER } from "@/core/guardrails/ownerNormalization";
 import { readBrdContent } from "@/core/documentation/brdContent";
+import { renderMermaidFlowchart } from "@/core/diagramming/renderMermaid";
+import { MermaidDiagram } from "@/app/components/MermaidDiagram";
 import {
   approveDocumentAction,
   rejectDocumentAction,
@@ -13,8 +18,21 @@ import {
   approveTicketAction,
   rejectTicketAction,
   addDevSpecAndGenerateTicketsAction,
+  generateDiagramAction,
+  approveDiagramAction,
+  rejectDiagramAction,
+  addDesignSystemNoteAndGenerateWireframesAction,
+  approveWireframeSetAction,
+  rejectWireframeSetAction,
 } from "@/app/actions";
-import { PRODUCT_DISCOVERY_MILESTONES, type Gap, type SourceRef } from "@/core/llm/schemas";
+import {
+  PRODUCT_DISCOVERY_MILESTONES,
+  type Gap,
+  type SourceRef,
+  type DiagramNode,
+  type DiagramEdge,
+  type WireframeOption,
+} from "@/core/llm/schemas";
 import type { Ticket } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +43,30 @@ function readGaps(gaps: unknown): Gap[] {
 
 function readSourceRefs(sourceRefs: unknown): SourceRef[] {
   return Array.isArray(sourceRefs) ? (sourceRefs as SourceRef[]) : [];
+}
+
+interface DiagramContent {
+  title: string;
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+}
+
+function readDiagramContent(content: unknown): DiagramContent | null {
+  if (content && typeof content === "object" && "nodes" in content && "edges" in content) {
+    return content as DiagramContent;
+  }
+  return null;
+}
+
+interface WireframeSetContent {
+  options: WireframeOption[];
+}
+
+function readWireframeContent(content: unknown): WireframeSetContent | null {
+  if (content && typeof content === "object" && "options" in content) {
+    return content as WireframeSetContent;
+  }
+  return null;
 }
 
 // Shared by both the Product Discovery and Development ticket lists --
@@ -102,17 +144,24 @@ export default async function ReviewPage({
   const transcript = await getTranscript(params.id);
   if (!transcript) notFound();
 
-  const [documents, actionItems, tickets, devSpecNotes] = await Promise.all([
-    listDocumentsForTranscript(params.id),
-    listActionItemsForTranscript(params.id),
-    listTicketsForTranscript(params.id),
-    listDevSpecNotesForTranscript(params.id),
-  ]);
+  const [documents, actionItems, tickets, devSpecNotes, diagrams, designSystemNotes, wireframeSets] =
+    await Promise.all([
+      listDocumentsForTranscript(params.id),
+      listActionItemsForTranscript(params.id),
+      listTicketsForTranscript(params.id),
+      listDevSpecNotesForTranscript(params.id),
+      listDiagramsForTranscript(params.id),
+      listDesignSystemNotesForTranscript(params.id),
+      listWireframeSetsForTranscript(params.id),
+    ]);
   const brdDocument = documents.find((d) => d.type === "BRD") ?? null;
   const brdContent = brdDocument ? readBrdContent(brdDocument.content) : null;
   const gaps = brdDocument ? readGaps(brdDocument.gaps) : [];
   const productDiscoveryTickets = tickets.filter((t) => t.type === "PRODUCT_DISCOVERY");
   const developmentTickets = tickets.filter((t) => t.type === "DEVELOPMENT");
+  const diagram = diagrams[0] ?? null;
+  const diagramContent = diagram ? readDiagramContent(diagram.content) : null;
+  const diagramGaps = diagram ? readGaps(diagram.gaps) : [];
 
   return (
     <>
@@ -342,6 +391,215 @@ export default async function ReviewPage({
           ))}
         </div>
       )}
+
+      <div className="card">
+        <h2>
+          User Flow diagram (FR-10){" "}
+          {diagram && (
+            <span className={`badge badge-${diagram.status.toLowerCase()}`}>
+              {diagram.status.replace("_", " ")}
+            </span>
+          )}
+        </h2>
+        <p className="muted">
+          Derived from the BRD above -- each step cites the BRD text it came
+          from, and any part of the process the BRD doesn&apos;t describe is
+          left out and flagged rather than guessed.
+        </p>
+
+        {!diagram && brdContent && (
+          <form
+            className="actions-row"
+            action={async () => {
+              "use server";
+              const formData = new FormData();
+              formData.set("documentId", brdDocument!.id);
+              formData.set("transcriptId", transcript.id);
+              await generateDiagramAction(formData);
+            }}
+          >
+            <button type="submit">Generate User Flow diagram</button>
+          </form>
+        )}
+        {!diagram && !brdContent && (
+          <p className="muted">Generate a BRD first -- the diagram is derived from it.</p>
+        )}
+
+        {diagramContent && (
+          <>
+            <MermaidDiagram
+              id={`diagram-${diagram!.id}`}
+              chart={renderMermaidFlowchart(diagramContent.nodes, diagramContent.edges)}
+            />
+            {diagramGaps.length > 0 && (
+              <div className="gaps-block">
+                <strong>Not covered by the BRD (FR-5):</strong>
+                <ul>
+                  {diagramGaps.map((gap, i) => (
+                    <li key={i}>
+                      <strong>{gap.section}:</strong> {gap.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+
+        {diagram && diagram.status === "PENDING_APPROVAL" && (
+          <form
+            className="actions-row"
+            action={async (formData) => {
+              "use server";
+              formData.set("diagramId", diagram.id);
+              formData.set("transcriptId", transcript.id);
+              const decision = formData.get("decision");
+              if (decision === "approve") {
+                await approveDiagramAction(formData);
+              } else {
+                await rejectDiagramAction(formData);
+              }
+            }}
+          >
+            <input className="approver-input" type="text" name="approverName" placeholder="Your name" required />
+            <button type="submit" name="decision" value="approve">
+              Approve
+            </button>
+            <button type="submit" name="decision" value="reject" className="secondary">
+              Reject
+            </button>
+          </form>
+        )}
+        {diagram && diagram.status === "APPROVED" && (
+          <p className="muted">
+            Approved by {diagram.approvedBy} on {diagram.approvedAt?.toISOString().slice(0, 10)}.
+          </p>
+        )}
+        {diagram && diagram.status === "REJECTED" && (
+          <p className="muted">
+            Rejected by {diagram.approvedBy} on {diagram.approvedAt?.toISOString().slice(0, 10)}.
+          </p>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>Wireframe options (FR-11)</h2>
+        <p className="muted">
+          Paste a description of the team&apos;s existing design system
+          (component styles, patterns) to draft 2-3 rough wireframe options
+          grounded in it and in the BRD above -- kept deliberately rough, not
+          pixel-precise mockups. There&apos;s no design-system integration yet
+          (that&apos;s a later slice), so this is pasted in directly for now.
+        </p>
+
+        {designSystemNotes.map((note) => (
+          <div className="section-block" key={note.id}>
+            <h3>{note.title ?? "(untitled design system note)"}</h3>
+            <p className="muted">{note.rawText}</p>
+          </div>
+        ))}
+
+        {brdContent ? (
+          <form action={addDesignSystemNoteAndGenerateWireframesAction}>
+            <input type="hidden" name="transcriptId" value={transcript.id} />
+            <input type="hidden" name="documentId" value={brdDocument!.id} />
+            <label htmlFor="designSystemTitle">Title (optional)</label>
+            <input
+              type="text"
+              id="designSystemTitle"
+              name="title"
+              placeholder="e.g. Core design system v2"
+            />
+            <label htmlFor="designSystemText">Design system notes</label>
+            <textarea
+              id="designSystemText"
+              name="rawText"
+              required
+              placeholder="Paste a description of your design system's components and patterns..."
+            />
+            <div className="actions-row">
+              <button type="submit">Generate wireframe options</button>
+            </div>
+          </form>
+        ) : (
+          <p className="muted">Generate a BRD first -- wireframes need it for requirements.</p>
+        )}
+      </div>
+
+      {wireframeSets.map((set) => {
+        const content = readWireframeContent(set.content);
+        const setGaps = readGaps(set.gaps);
+        if (!content) return null;
+        return (
+          <div className="card" key={set.id}>
+            <h2>
+              Wireframe options{" "}
+              <span className={`badge badge-${set.status.toLowerCase()}`}>
+                {set.status.replace("_", " ")}
+              </span>
+            </h2>
+            {content.options.map((option, i) => (
+              <div className="section-block" key={i}>
+                <h3>{option.name}</h3>
+                <div className="wireframe-stack">
+                  {option.regions.map((region, j) => (
+                    <div className={`wireframe-region wireframe-region-${region.kind}`} key={j}>
+                      <span className="wireframe-region-kind">{region.kind}</span>
+                      {region.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {setGaps.length > 0 && (
+              <div className="gaps-block">
+                <strong>Not specified (FR-5):</strong>
+                <ul>
+                  {setGaps.map((gap, i) => (
+                    <li key={i}>
+                      <strong>{gap.section}:</strong> {gap.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {set.status === "PENDING_APPROVAL" && (
+              <form
+                className="actions-row"
+                action={async (formData) => {
+                  "use server";
+                  formData.set("wireframeSetId", set.id);
+                  formData.set("transcriptId", transcript.id);
+                  const decision = formData.get("decision");
+                  if (decision === "approve") {
+                    await approveWireframeSetAction(formData);
+                  } else {
+                    await rejectWireframeSetAction(formData);
+                  }
+                }}
+              >
+                <input className="approver-input" type="text" name="approverName" placeholder="Your name" required />
+                <button type="submit" name="decision" value="approve">
+                  Approve
+                </button>
+                <button type="submit" name="decision" value="reject" className="secondary">
+                  Reject
+                </button>
+              </form>
+            )}
+            {set.status === "APPROVED" && (
+              <p className="muted">
+                Approved by {set.approvedBy} on {set.approvedAt?.toISOString().slice(0, 10)}.
+              </p>
+            )}
+            {set.status === "REJECTED" && (
+              <p className="muted">
+                Rejected by {set.approvedBy} on {set.approvedAt?.toISOString().slice(0, 10)}.
+              </p>
+            )}
+          </div>
+        );
+      })}
     </>
   );
 }
