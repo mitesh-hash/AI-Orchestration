@@ -193,6 +193,14 @@ th {
   font-style: italic;
 }
 
+.conflict-row {
+  background: var(--warning-bg);
+}
+
+.conflict-row td {
+  border-bottom-color: var(--warning-border);
+}
+
 .transcript-list a {
   display: block;
   padding: 0.4rem 0;

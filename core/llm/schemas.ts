@@ -171,6 +171,93 @@ export const WireframeOptionsDraftSchema = z.object({
 });
 export type WireframeOptionsDraft = z.infer<typeof WireframeOptionsDraftSchema>;
 
+// FR-12/13: a row-per-topic diff between two pasted texts. Conflicts are
+// flagged in-line (isConflict) rather than as a separate list, so a
+// genuine contradiction is never silently dropped or resolved -- both
+// sides are always shown side by side either way.
+export const ComparisonRowSchema = z.object({
+  topic: z.string().min(1),
+  // "Not mentioned" (or similar) is an expected, valid value here -- one
+  // side legitimately not addressing a topic is not itself a conflict.
+  aSummary: z.string().min(1),
+  bSummary: z.string().min(1),
+  isConflict: z.boolean(),
+  sourceRefs: z
+    .array(SourceRefSchema)
+    .min(1, "every comparison row must cite version A and/or version B"),
+});
+export type ComparisonRow = z.infer<typeof ComparisonRowSchema>;
+
+export const ComparisonDraftSchema = z.object({
+  rows: z.array(ComparisonRowSchema).min(1),
+});
+export type ComparisonDraft = z.infer<typeof ComparisonDraftSchema>;
+
+// FR-14: structure extracted from a pasted HTML prototype. Every element
+// cites the actual HTML snippet it came from -- extracting an element that
+// isn't really in the markup would be exactly the kind of fabrication this
+// whole app is built to prevent, just applied to a prototype instead of a
+// transcript.
+export const PROTOTYPE_ELEMENT_KINDS = [
+  "heading",
+  "text",
+  "button",
+  "link",
+  "input",
+  "form",
+  "image",
+  "navigation",
+  "other",
+] as const;
+
+export const PrototypeElementSchema = z.object({
+  kind: z.enum(PROTOTYPE_ELEMENT_KINDS),
+  label: z.string().min(1),
+  // Free-text notes on anything encoded in markup/attributes worth
+  // surfacing (e.g. "required, maxlength 50") -- never a claim about
+  // runtime behavior, which static HTML can't demonstrate.
+  details: z.string().optional(),
+  sourceRefs: z
+    .array(SourceRefSchema)
+    .min(1, "every prototype element must cite the HTML snippet it came from"),
+});
+export type PrototypeElement = z.infer<typeof PrototypeElementSchema>;
+
+export const PrototypeSectionSchema = z.object({
+  name: z.string().min(1),
+  elements: z.array(PrototypeElementSchema).min(1),
+});
+export type PrototypeSection = z.infer<typeof PrototypeSectionSchema>;
+
+export const PrototypeStructureDraftSchema = z.object({
+  title: z.string().min(1),
+  sections: z.array(PrototypeSectionSchema).min(1),
+});
+export type PrototypeStructureDraft = z.infer<typeof PrototypeStructureDraftSchema>;
+
+// FR-15: cross-checks a BRD against an already-extracted prototype
+// structure. Deliberately has no field for runtime/behavioral claims --
+// see the prompt in core/llm/prompts.ts for the explicit scope limit to
+// what static structure can actually demonstrate.
+export const PrototypeMismatchSchema = z.object({
+  topic: z.string().min(1),
+  documented: z.string().min(1),
+  prototypeShows: z.string().min(1),
+  sourceRefs: z
+    .array(SourceRefSchema)
+    .min(1, "every mismatch must cite both the BRD and the prototype structure"),
+});
+export type PrototypeMismatch = z.infer<typeof PrototypeMismatchSchema>;
+
+export const PrototypeCrossCheckDraftSchema = z.object({
+  mismatches: z.array(PrototypeMismatchSchema),
+  // Same principle as Gap elsewhere: if the BRD doesn't specify something
+  // concretely enough to check it against the prototype, this is where
+  // that goes instead of a guessed "mismatch" or a silently-assumed pass.
+  notCheckable: z.array(GapSchema),
+});
+export type PrototypeCrossCheckDraft = z.infer<typeof PrototypeCrossCheckDraftSchema>;
+
 // Hand-written JSON Schemas for the Anthropic tool_use input_schema. Kept in
 // lockstep with the Zod schemas above by the tests in tests/llm.test.ts
 // rather than generated, to avoid a codegen dependency for two small shapes.
@@ -413,4 +500,114 @@ export const DEVELOPMENT_TICKETS_TOOL_JSON_SCHEMA = {
     },
   },
   required: ["tickets", "gaps"],
+} as const;
+
+export const COMPARISON_TOOL_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    rows: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        properties: {
+          topic: { type: "string" },
+          aSummary: { type: "string" },
+          bSummary: { type: "string" },
+          isConflict: { type: "boolean" },
+          sourceRefs: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: { quoteOrParaphrase: { type: "string" } },
+              required: ["quoteOrParaphrase"],
+            },
+          },
+        },
+        required: ["topic", "aSummary", "bSummary", "isConflict", "sourceRefs"],
+      },
+    },
+  },
+  required: ["rows"],
+} as const;
+
+export const PROTOTYPE_STRUCTURE_TOOL_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    sections: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          elements: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: {
+                kind: { type: "string", enum: [...PROTOTYPE_ELEMENT_KINDS] },
+                label: { type: "string" },
+                details: { type: "string" },
+                sourceRefs: {
+                  type: "array",
+                  minItems: 1,
+                  items: {
+                    type: "object",
+                    properties: { quoteOrParaphrase: { type: "string" } },
+                    required: ["quoteOrParaphrase"],
+                  },
+                },
+              },
+              required: ["kind", "label", "sourceRefs"],
+            },
+          },
+        },
+        required: ["name", "elements"],
+      },
+    },
+  },
+  required: ["title", "sections"],
+} as const;
+
+export const PROTOTYPE_CROSS_CHECK_TOOL_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    mismatches: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          topic: { type: "string" },
+          documented: { type: "string" },
+          prototypeShows: { type: "string" },
+          sourceRefs: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: { quoteOrParaphrase: { type: "string" } },
+              required: ["quoteOrParaphrase"],
+            },
+          },
+        },
+        required: ["topic", "documented", "prototypeShows", "sourceRefs"],
+      },
+    },
+    notCheckable: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          section: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["section", "reason"],
+      },
+    },
+  },
+  required: ["mismatches", "notCheckable"],
 } as const;

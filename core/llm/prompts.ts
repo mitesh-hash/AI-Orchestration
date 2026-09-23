@@ -193,3 +193,125 @@ ${designSystemText}
 
 Draft 2-3 rough wireframe options from this BRD and design system using the submit_wireframe_options tool.`;
 }
+
+export const COMPARISON_SYSTEM_PROMPT = `You compare two pasted texts for an internal Product Team -- these could be
+two drafts of the same document, a design vs. new stakeholder feedback, or
+any other pair of versions the team wants diffed.
+
+Rules you must follow:
+- Go topic by topic. For each topic where the two texts say anything
+  different, add a row with what each side says. Use "Not mentioned" for a
+  side that doesn't address the topic at all.
+- Set "isConflict" to true ONLY when the two sides genuinely contradict
+  each other (e.g. one says the limit is 5, the other says 10). A side
+  simply adding detail the other lacks is NOT a conflict -- leave
+  "isConflict" false for those rows.
+- Never resolve a conflict yourself, pick a "winner", or imply which side
+  is more likely correct. Report both sides exactly as stated and let a
+  human decide.
+- Every row's "sourceRefs" must quote or closely paraphrase version A
+  and/or version B text that backs it up.
+- Do not invent a difference that isn't actually present in either text.`;
+
+export function buildComparisonUserPrompt(
+  labelA: string,
+  textA: string,
+  labelB: string,
+  textB: string
+): string {
+  return `Version A (${labelA}):
+"""
+${textA}
+"""
+
+Version B (${labelB}):
+"""
+${textB}
+"""
+
+Compare these two versions using the submit_comparison tool.`;
+}
+
+export const PROTOTYPE_STRUCTURE_SYSTEM_PROMPT = `You extract the structure of a frozen/signed-off HTML prototype for an
+internal Product Team, so it can be used to update documentation (FR-14).
+
+Rules you must follow:
+- Group what you find into logical sections based on the HTML's own
+  structure (e.g. "Header", "Cart summary", "Footer") -- use the markup's
+  actual nesting/semantic tags as your guide, not guesswork.
+- Every element's "sourceRefs" must quote the actual HTML snippet (tag,
+  visible text, and/or relevant attributes) it was extracted from. Never
+  describe an element, label, or behavior that isn't actually present in
+  the markup you were given.
+- "details" is for things literally encoded in markup/attributes worth
+  surfacing (e.g. "required", "maxlength 50", "type=email") -- never a
+  claim about what happens when a user interacts with it. This is static
+  HTML, not a running application; you cannot know its actual runtime
+  behavior, so do not describe any.`;
+
+export function buildPrototypeStructureUserPrompt(rawHtml: string): string {
+  return `Prototype HTML:
+"""
+${rawHtml}
+"""
+
+Extract this prototype's structure using the submit_prototype_structure tool.`;
+}
+
+function formatPrototypeSections(
+  sections: { name: string; elements: { kind: string; label: string; details?: string }[] }[]
+): string {
+  return sections
+    .map(
+      (s) =>
+        `### ${s.name}\n` +
+        s.elements.map((e) => `- [${e.kind}] ${e.label}${e.details ? ` (${e.details})` : ""}`).join("\n")
+    )
+    .join("\n\n");
+}
+
+export const PROTOTYPE_CROSS_CHECK_SYSTEM_PROMPT = `You cross-check a BRD's documented requirements against an already-
+extracted structure of a signed-off HTML prototype, for an internal
+Product Team (FR-15).
+
+Rules you must follow:
+- You can ONLY compare what static structure actually shows: visible text
+  and labels, presence or absence of an element, and attributes literally
+  present in the markup (required, max length, input type, etc.).
+- You must NEVER claim to verify runtime or interactive behavior -- click
+  handlers, form submission logic, API calls, conditional/dynamic state,
+  animations, or anything else that would require actually running the
+  prototype in a browser. That is not checkable from static HTML, and
+  claiming otherwise would be exactly the kind of fabrication this tool
+  exists to prevent. If a documented requirement is fundamentally about
+  behavior rather than structure, put it in "notCheckable" and say so.
+- Report a mismatch only where the BRD states something concrete AND the
+  prototype's extracted structure shows something different or missing.
+- If the BRD doesn't specify something concretely enough to check it
+  against the prototype, do NOT invent a mismatch and do NOT silently
+  assume it passes -- add it to "notCheckable" with why.
+- Every mismatch's "sourceRefs" must cite both the BRD text and the
+  prototype element it disagrees with.`;
+
+export function buildPrototypeCrossCheckUserPrompt(
+  brdTitle: string,
+  brdSections: { heading: string; text: string }[],
+  prototypeTitle: string,
+  prototypeSections: { name: string; elements: { kind: string; label: string; details?: string }[] }[]
+): string {
+  return `BRD title: ${brdTitle}
+
+BRD sections:
+"""
+${formatBrdSections(brdSections)}
+"""
+
+Prototype title: ${prototypeTitle}
+
+Prototype structure:
+"""
+${formatPrototypeSections(prototypeSections)}
+"""
+
+Cross-check the BRD against this prototype structure using the submit_prototype_cross_check tool.`;
+}

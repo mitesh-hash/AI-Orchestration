@@ -22,12 +22,31 @@ import {
   createWireframeSet,
   wireframeSetApprovalRepo,
 } from "@/core/db/wireframeSetRepository";
+import {
+  createComparisonDraft,
+  setComparisonContent,
+  comparisonApprovalRepo,
+} from "@/core/db/comparisonRepository";
+import {
+  createPrototypeExtractionDraft,
+  setPrototypeExtractionContent,
+  getPrototypeExtraction,
+  prototypeExtractionApprovalRepo,
+} from "@/core/db/prototypeExtractionRepository";
+import {
+  createPrototypeCrossCheck,
+  prototypeCrossCheckApprovalRepo,
+} from "@/core/db/prototypeCrossCheckRepository";
 import { generateBrd } from "@/core/documentation/generateBrd";
 import { extractActionItems } from "@/core/actions-tickets/extractActionItems";
 import { generateProductDiscoveryTickets } from "@/core/actions-tickets/generateProductDiscoveryTickets";
 import { generateDevelopmentTickets } from "@/core/actions-tickets/generateDevelopmentTickets";
 import { generateUserFlowDiagram } from "@/core/diagramming/generateUserFlowDiagram";
 import { generateWireframeOptions } from "@/core/diagramming/generateWireframeOptions";
+import { generateComparison } from "@/core/comparison/generateComparison";
+import { generatePrototypeStructure } from "@/core/comparison/generatePrototypeStructure";
+import { generatePrototypeCrossCheck } from "@/core/comparison/generatePrototypeCrossCheck";
+import { readPrototypeContent } from "@/core/comparison/prototypeContent";
 import { approveDocument, rejectDocument } from "@/core/guardrails/approvalGate";
 import { readBrdContent } from "@/core/documentation/brdContent";
 
@@ -315,5 +334,173 @@ export async function rejectWireframeSetAction(formData: FormData): Promise<void
   const transcriptId = String(formData.get("transcriptId") ?? "");
 
   await rejectDocument(wireframeSetApprovalRepo, wireframeSetId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+// FR-12/13: saves both pasted texts immediately (so nothing is lost if
+// generation fails) and diffs them in one step, same paste-and-generate
+// pattern as addDevSpecAndGenerateTicketsAction.
+export async function generateComparisonAction(formData: FormData): Promise<void> {
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+  const labelA = String(formData.get("labelA") ?? "").trim() || undefined;
+  const textA = String(formData.get("textA") ?? "");
+  const labelB = String(formData.get("labelB") ?? "").trim() || undefined;
+  const textB = String(formData.get("textB") ?? "");
+
+  const warnings: string[] = [];
+
+  const comparison = await createComparisonDraft({ transcriptId, labelA, textA, labelB, textB });
+
+  try {
+    const result = await generateComparison(
+      labelA ?? "Version A",
+      comparison.textA,
+      labelB ?? "Version B",
+      comparison.textB
+    );
+    if (result.status === "insufficient_input") {
+      warnings.push(`Comparison not generated: ${result.reason}`);
+    } else {
+      await setComparisonContent(comparison.id, result.draft);
+      const conflictCount = result.draft.rows.filter((r) => r.isConflict).length;
+      if (conflictCount > 0) {
+        warnings.push(
+          `${conflictCount} genuine conflict${conflictCount === 1 ? "" : "s"} found (FR-13) -- see the comparison below.`
+        );
+      }
+    }
+  } catch (err) {
+    warnings.push(`Comparison generation failed: ${errorMessage(err)}`);
+  }
+
+  const query = warnings.length > 0 ? `?warning=${encodeURIComponent(warnings.join(" | "))}` : "";
+  redirect(`/review/${transcriptId}${query}`);
+}
+
+// FR-18/FR-19 for comparisons -- identical guardrail, different repo.
+export async function approveComparisonAction(formData: FormData): Promise<void> {
+  const comparisonId = String(formData.get("comparisonId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await approveDocument(comparisonApprovalRepo, comparisonId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+export async function rejectComparisonAction(formData: FormData): Promise<void> {
+  const comparisonId = String(formData.get("comparisonId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await rejectDocument(comparisonApprovalRepo, comparisonId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+// FR-14: saves the pasted prototype HTML immediately, then extracts its
+// structure in one step -- same always-preserve-input pattern as the
+// comparison and dev-spec/design-system actions above.
+export async function addPrototypeAndExtractAction(formData: FormData): Promise<void> {
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+  const title = String(formData.get("title") ?? "").trim() || undefined;
+  const rawHtml = String(formData.get("rawHtml") ?? "");
+
+  const warnings: string[] = [];
+
+  const extraction = await createPrototypeExtractionDraft({ transcriptId, title, rawHtml });
+
+  try {
+    const result = await generatePrototypeStructure(extraction.rawHtml);
+    if (result.status === "insufficient_input") {
+      warnings.push(`Prototype structure not extracted: ${result.reason}`);
+    } else {
+      await setPrototypeExtractionContent(extraction.id, result.draft);
+    }
+  } catch (err) {
+    warnings.push(`Prototype extraction failed: ${errorMessage(err)}`);
+  }
+
+  const query = warnings.length > 0 ? `?warning=${encodeURIComponent(warnings.join(" | "))}` : "";
+  redirect(`/review/${transcriptId}${query}`);
+}
+
+// FR-18/FR-19 for prototype extractions -- identical guardrail, different
+// repo.
+export async function approvePrototypeExtractionAction(formData: FormData): Promise<void> {
+  const prototypeExtractionId = String(formData.get("prototypeExtractionId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await approveDocument(prototypeExtractionApprovalRepo, prototypeExtractionId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+export async function rejectPrototypeExtractionAction(formData: FormData): Promise<void> {
+  const prototypeExtractionId = String(formData.get("prototypeExtractionId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await rejectDocument(prototypeExtractionApprovalRepo, prototypeExtractionId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+// FR-15: cross-checks an existing BRD against an existing prototype
+// extraction. Both inputs already persist independently, so unlike the
+// actions above there's no "always save the input" step here -- nothing of
+// the user's would be lost by a failed attempt, just re-clickable.
+export async function generatePrototypeCrossCheckAction(formData: FormData): Promise<void> {
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+  const documentId = String(formData.get("documentId") ?? "");
+  const prototypeExtractionId = String(formData.get("prototypeExtractionId") ?? "");
+
+  const warnings: string[] = [];
+
+  try {
+    const [document, extraction] = await Promise.all([
+      getDocument(documentId),
+      getPrototypeExtraction(prototypeExtractionId),
+    ]);
+    const brdContent = document ? readBrdContent(document.content) : null;
+    const prototypeContent = extraction ? readPrototypeContent(extraction.content) : null;
+
+    if (!brdContent || !prototypeContent) {
+      warnings.push("Cross-check not generated: could not read the BRD or prototype content.");
+    } else {
+      const result = await generatePrototypeCrossCheck(brdContent, prototypeContent);
+      if (result.status === "insufficient_input") {
+        warnings.push(`Cross-check not generated: ${result.reason}`);
+      } else {
+        await createPrototypeCrossCheck(documentId, prototypeExtractionId, result.draft);
+        if (result.draft.mismatches.length > 0) {
+          warnings.push(
+            `${result.draft.mismatches.length} mismatch${result.draft.mismatches.length === 1 ? "" : "es"} found (FR-15) -- see the cross-check below.`
+          );
+        }
+      }
+    }
+  } catch (err) {
+    warnings.push(`Cross-check generation failed: ${errorMessage(err)}`);
+  }
+
+  const query = warnings.length > 0 ? `?warning=${encodeURIComponent(warnings.join(" | "))}` : "";
+  redirect(`/review/${transcriptId}${query}`);
+}
+
+// FR-18/FR-19 for prototype cross-checks -- identical guardrail, different
+// repo.
+export async function approvePrototypeCrossCheckAction(formData: FormData): Promise<void> {
+  const crossCheckId = String(formData.get("crossCheckId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await approveDocument(prototypeCrossCheckApprovalRepo, crossCheckId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+export async function rejectPrototypeCrossCheckAction(formData: FormData): Promise<void> {
+  const crossCheckId = String(formData.get("crossCheckId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await rejectDocument(prototypeCrossCheckApprovalRepo, crossCheckId, approverName);
   revalidatePath(`/review/${transcriptId}`);
 }

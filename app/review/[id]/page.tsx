@@ -7,8 +7,12 @@ import { listDevSpecNotesForTranscript } from "@/core/db/devSpecNoteRepository";
 import { listDiagramsForTranscript } from "@/core/db/diagramRepository";
 import { listDesignSystemNotesForTranscript } from "@/core/db/designSystemNoteRepository";
 import { listWireframeSetsForTranscript } from "@/core/db/wireframeSetRepository";
+import { listComparisonsForTranscript } from "@/core/db/comparisonRepository";
+import { listPrototypeExtractionsForTranscript } from "@/core/db/prototypeExtractionRepository";
+import { listPrototypeCrossChecksForTranscript } from "@/core/db/prototypeCrossCheckRepository";
 import { UNSPECIFIED_OWNER } from "@/core/guardrails/ownerNormalization";
 import { readBrdContent } from "@/core/documentation/brdContent";
+import { readPrototypeContent } from "@/core/comparison/prototypeContent";
 import { renderMermaidFlowchart } from "@/core/diagramming/renderMermaid";
 import { MermaidDiagram } from "@/app/components/MermaidDiagram";
 import {
@@ -24,6 +28,15 @@ import {
   addDesignSystemNoteAndGenerateWireframesAction,
   approveWireframeSetAction,
   rejectWireframeSetAction,
+  generateComparisonAction,
+  approveComparisonAction,
+  rejectComparisonAction,
+  addPrototypeAndExtractAction,
+  approvePrototypeExtractionAction,
+  rejectPrototypeExtractionAction,
+  generatePrototypeCrossCheckAction,
+  approvePrototypeCrossCheckAction,
+  rejectPrototypeCrossCheckAction,
 } from "@/app/actions";
 import {
   PRODUCT_DISCOVERY_MILESTONES,
@@ -32,6 +45,8 @@ import {
   type DiagramNode,
   type DiagramEdge,
   type WireframeOption,
+  type ComparisonRow,
+  type PrototypeMismatch,
 } from "@/core/llm/schemas";
 import type { Ticket } from "@prisma/client";
 
@@ -69,10 +84,97 @@ function readWireframeContent(content: unknown): WireframeSetContent | null {
   return null;
 }
 
-// Shared by both the Product Discovery and Development ticket lists --
-// same status badge, citations, and approve/reject form either way. The
-// inline server action only closes over the two ids it needs (both plain
-// strings), which is what makes it valid to define inside a loop like this.
+interface ComparisonContent {
+  rows: ComparisonRow[];
+}
+
+function readComparisonContent(content: unknown): ComparisonContent | null {
+  if (content && typeof content === "object" && "rows" in content) {
+    return content as ComparisonContent;
+  }
+  return null;
+}
+
+interface CrossCheckContent {
+  mismatches: PrototypeMismatch[];
+  notCheckable: Gap[];
+}
+
+function readCrossCheckContent(content: unknown): CrossCheckContent | null {
+  if (content && typeof content === "object" && "mismatches" in content) {
+    return content as CrossCheckContent;
+  }
+  return null;
+}
+
+// Shared by every approvable entity on this page (BRD, tickets, diagram,
+// wireframe set, comparison, prototype extraction, cross-check) -- same
+// status badge, approve/reject form, and approved/rejected notice either
+// way. The inline server action only closes over the two ids it needs
+// (both plain strings), which is what makes it valid to define per item.
+function ApprovalControls({
+  status,
+  idFieldName,
+  id,
+  transcriptId,
+  approvedBy,
+  approvedAt,
+  approveAction,
+  rejectAction,
+}: {
+  status: string;
+  idFieldName: string;
+  id: string;
+  transcriptId: string;
+  approvedBy: string | null;
+  approvedAt: Date | null;
+  approveAction: (formData: FormData) => Promise<void>;
+  rejectAction: (formData: FormData) => Promise<void>;
+}) {
+  if (status === "PENDING_APPROVAL") {
+    return (
+      <form
+        className="actions-row"
+        action={async (formData) => {
+          "use server";
+          formData.set(idFieldName, id);
+          formData.set("transcriptId", transcriptId);
+          const decision = formData.get("decision");
+          if (decision === "approve") {
+            await approveAction(formData);
+          } else {
+            await rejectAction(formData);
+          }
+        }}
+      >
+        <input className="approver-input" type="text" name="approverName" placeholder="Your name" required />
+        <button type="submit" name="decision" value="approve">
+          Approve
+        </button>
+        <button type="submit" name="decision" value="reject" className="secondary">
+          Reject
+        </button>
+      </form>
+    );
+  }
+  if (status === "APPROVED") {
+    return (
+      <p className="muted">
+        Approved by {approvedBy} on {approvedAt?.toISOString().slice(0, 10)}.
+      </p>
+    );
+  }
+  if (status === "REJECTED") {
+    return (
+      <p className="muted">
+        Rejected by {approvedBy} on {approvedAt?.toISOString().slice(0, 10)}.
+      </p>
+    );
+  }
+  return null;
+}
+
+// Shared by both the Product Discovery and Development ticket lists.
 function TicketCard({ ticket, transcriptId, sourceLabel }: {
   ticket: Ticket;
   transcriptId: string;
@@ -95,41 +197,16 @@ function TicketCard({ ticket, transcriptId, sourceLabel }: {
           ))}
         </ul>
       </div>
-
-      {ticket.status === "PENDING_APPROVAL" && (
-        <form
-          className="actions-row"
-          action={async (formData) => {
-            "use server";
-            formData.set("ticketId", ticket.id);
-            formData.set("transcriptId", transcriptId);
-            const decision = formData.get("decision");
-            if (decision === "approve") {
-              await approveTicketAction(formData);
-            } else {
-              await rejectTicketAction(formData);
-            }
-          }}
-        >
-          <input className="approver-input" type="text" name="approverName" placeholder="Your name" required />
-          <button type="submit" name="decision" value="approve">
-            Approve
-          </button>
-          <button type="submit" name="decision" value="reject" className="secondary">
-            Reject
-          </button>
-        </form>
-      )}
-      {ticket.status === "APPROVED" && (
-        <p className="muted">
-          Approved by {ticket.approvedBy} on {ticket.approvedAt?.toISOString().slice(0, 10)}.
-        </p>
-      )}
-      {ticket.status === "REJECTED" && (
-        <p className="muted">
-          Rejected by {ticket.approvedBy} on {ticket.approvedAt?.toISOString().slice(0, 10)}.
-        </p>
-      )}
+      <ApprovalControls
+        status={ticket.status}
+        idFieldName="ticketId"
+        id={ticket.id}
+        transcriptId={transcriptId}
+        approvedBy={ticket.approvedBy}
+        approvedAt={ticket.approvedAt}
+        approveAction={approveTicketAction}
+        rejectAction={rejectTicketAction}
+      />
     </div>
   );
 }
@@ -144,16 +221,29 @@ export default async function ReviewPage({
   const transcript = await getTranscript(params.id);
   if (!transcript) notFound();
 
-  const [documents, actionItems, tickets, devSpecNotes, diagrams, designSystemNotes, wireframeSets] =
-    await Promise.all([
-      listDocumentsForTranscript(params.id),
-      listActionItemsForTranscript(params.id),
-      listTicketsForTranscript(params.id),
-      listDevSpecNotesForTranscript(params.id),
-      listDiagramsForTranscript(params.id),
-      listDesignSystemNotesForTranscript(params.id),
-      listWireframeSetsForTranscript(params.id),
-    ]);
+  const [
+    documents,
+    actionItems,
+    tickets,
+    devSpecNotes,
+    diagrams,
+    designSystemNotes,
+    wireframeSets,
+    comparisons,
+    prototypeExtractions,
+    prototypeCrossChecks,
+  ] = await Promise.all([
+    listDocumentsForTranscript(params.id),
+    listActionItemsForTranscript(params.id),
+    listTicketsForTranscript(params.id),
+    listDevSpecNotesForTranscript(params.id),
+    listDiagramsForTranscript(params.id),
+    listDesignSystemNotesForTranscript(params.id),
+    listWireframeSetsForTranscript(params.id),
+    listComparisonsForTranscript(params.id),
+    listPrototypeExtractionsForTranscript(params.id),
+    listPrototypeCrossChecksForTranscript(params.id),
+  ]);
   const brdDocument = documents.find((d) => d.type === "BRD") ?? null;
   const brdContent = brdDocument ? readBrdContent(brdDocument.content) : null;
   const gaps = brdDocument ? readGaps(brdDocument.gaps) : [];
@@ -242,46 +332,17 @@ export default async function ReviewPage({
           </>
         )}
 
-        {brdDocument && brdDocument.status === "PENDING_APPROVAL" && (
-          <form className="actions-row" action={async (formData) => {
-            "use server";
-            formData.set("documentId", brdDocument.id);
-            formData.set("transcriptId", transcript.id);
-            const decision = formData.get("decision");
-            if (decision === "approve") {
-              await approveDocumentAction(formData);
-            } else {
-              await rejectDocumentAction(formData);
-            }
-          }}>
-            <input
-              className="approver-input"
-              type="text"
-              name="approverName"
-              placeholder="Your name"
-              required
-            />
-            <button type="submit" name="decision" value="approve">
-              Approve
-            </button>
-            <button type="submit" name="decision" value="reject" className="secondary">
-              Reject
-            </button>
-          </form>
-        )}
-
-        {brdDocument && brdDocument.status === "APPROVED" && (
-          <p className="muted">
-            Approved by {brdDocument.approvedBy} on{" "}
-            {brdDocument.approvedAt?.toISOString().slice(0, 10)}.
-          </p>
-        )}
-        {brdDocument && brdDocument.status === "REJECTED" && (
-          <p className="muted">
-            Rejected by {brdDocument.approvedBy} on{" "}
-            {brdDocument.approvedAt?.toISOString().slice(0, 10)}. Draft retained for
-            reference.
-          </p>
+        {brdDocument && (
+          <ApprovalControls
+            status={brdDocument.status}
+            idFieldName="documentId"
+            id={brdDocument.id}
+            transcriptId={transcript.id}
+            approvedBy={brdDocument.approvedBy}
+            approvedAt={brdDocument.approvedAt}
+            approveAction={approveDocumentAction}
+            rejectAction={rejectDocumentAction}
+          />
         )}
       </div>
 
@@ -446,39 +507,17 @@ export default async function ReviewPage({
           </>
         )}
 
-        {diagram && diagram.status === "PENDING_APPROVAL" && (
-          <form
-            className="actions-row"
-            action={async (formData) => {
-              "use server";
-              formData.set("diagramId", diagram.id);
-              formData.set("transcriptId", transcript.id);
-              const decision = formData.get("decision");
-              if (decision === "approve") {
-                await approveDiagramAction(formData);
-              } else {
-                await rejectDiagramAction(formData);
-              }
-            }}
-          >
-            <input className="approver-input" type="text" name="approverName" placeholder="Your name" required />
-            <button type="submit" name="decision" value="approve">
-              Approve
-            </button>
-            <button type="submit" name="decision" value="reject" className="secondary">
-              Reject
-            </button>
-          </form>
-        )}
-        {diagram && diagram.status === "APPROVED" && (
-          <p className="muted">
-            Approved by {diagram.approvedBy} on {diagram.approvedAt?.toISOString().slice(0, 10)}.
-          </p>
-        )}
-        {diagram && diagram.status === "REJECTED" && (
-          <p className="muted">
-            Rejected by {diagram.approvedBy} on {diagram.approvedAt?.toISOString().slice(0, 10)}.
-          </p>
+        {diagram && (
+          <ApprovalControls
+            status={diagram.status}
+            idFieldName="diagramId"
+            id={diagram.id}
+            transcriptId={transcript.id}
+            approvedBy={diagram.approvedBy}
+            approvedAt={diagram.approvedAt}
+            approveAction={approveDiagramAction}
+            rejectAction={rejectDiagramAction}
+          />
         )}
       </div>
 
@@ -563,43 +602,259 @@ export default async function ReviewPage({
                 </ul>
               </div>
             )}
-            {set.status === "PENDING_APPROVAL" && (
-              <form
-                className="actions-row"
-                action={async (formData) => {
-                  "use server";
-                  formData.set("wireframeSetId", set.id);
-                  formData.set("transcriptId", transcript.id);
-                  const decision = formData.get("decision");
-                  if (decision === "approve") {
-                    await approveWireframeSetAction(formData);
-                  } else {
-                    await rejectWireframeSetAction(formData);
-                  }
-                }}
-              >
-                <input className="approver-input" type="text" name="approverName" placeholder="Your name" required />
-                <button type="submit" name="decision" value="approve">
-                  Approve
-                </button>
-                <button type="submit" name="decision" value="reject" className="secondary">
-                  Reject
-                </button>
-              </form>
-            )}
-            {set.status === "APPROVED" && (
-              <p className="muted">
-                Approved by {set.approvedBy} on {set.approvedAt?.toISOString().slice(0, 10)}.
-              </p>
-            )}
-            {set.status === "REJECTED" && (
-              <p className="muted">
-                Rejected by {set.approvedBy} on {set.approvedAt?.toISOString().slice(0, 10)}.
-              </p>
-            )}
+            <ApprovalControls
+              status={set.status}
+              idFieldName="wireframeSetId"
+              id={set.id}
+              transcriptId={transcript.id}
+              approvedBy={set.approvedBy}
+              approvedAt={set.approvedAt}
+              approveAction={approveWireframeSetAction}
+              rejectAction={rejectWireframeSetAction}
+            />
           </div>
         );
       })}
+
+      <div className="card">
+        <h2>Comparison (FR-12/13)</h2>
+        <p className="muted">
+          Paste any two versions of a document, design description, or
+          feedback to diff them -- side by side, topic by topic. A genuine
+          contradiction is flagged explicitly rather than resolved in favor
+          of either side.
+        </p>
+
+        <form action={generateComparisonAction}>
+          <input type="hidden" name="transcriptId" value={transcript.id} />
+          <label htmlFor="labelA">Version A label (optional)</label>
+          <input type="text" id="labelA" name="labelA" placeholder="e.g. BRD draft 1" />
+          <label htmlFor="textA">Version A text</label>
+          <textarea id="textA" name="textA" required placeholder="Paste version A here..." />
+          <label htmlFor="labelB">Version B label (optional)</label>
+          <input type="text" id="labelB" name="labelB" placeholder="e.g. BRD draft 2 after client call" />
+          <label htmlFor="textB">Version B text</label>
+          <textarea id="textB" name="textB" required placeholder="Paste version B here..." />
+          <div className="actions-row">
+            <button type="submit">Compare</button>
+          </div>
+        </form>
+      </div>
+
+      {comparisons.map((comparison) => {
+        const content = readComparisonContent(comparison.content);
+        return (
+          <div className="card" key={comparison.id}>
+            <h2>
+              {comparison.labelA ?? "Version A"} vs {comparison.labelB ?? "Version B"}{" "}
+              <span className={`badge badge-${comparison.status.toLowerCase()}`}>
+                {comparison.status.replace("_", " ")}
+              </span>
+            </h2>
+
+            {!content && (
+              <p className="muted">No comparison generated yet (see the warning above, if any).</p>
+            )}
+
+            {content && (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Topic</th>
+                    <th>{comparison.labelA ?? "Version A"}</th>
+                    <th>{comparison.labelB ?? "Version B"}</th>
+                    <th>Conflict?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {content.rows.map((row, i) => (
+                    <tr key={i} className={row.isConflict ? "conflict-row" : undefined}>
+                      <td>{row.topic}</td>
+                      <td>{row.aSummary}</td>
+                      <td>{row.bSummary}</td>
+                      <td>{row.isConflict ? <span className="badge badge-rejected">CONFLICT</span> : "--"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <ApprovalControls
+              status={comparison.status}
+              idFieldName="comparisonId"
+              id={comparison.id}
+              transcriptId={transcript.id}
+              approvedBy={comparison.approvedBy}
+              approvedAt={comparison.approvedAt}
+              approveAction={approveComparisonAction}
+              rejectAction={rejectComparisonAction}
+            />
+          </div>
+        );
+      })}
+
+      <div className="card">
+        <h2>Prototype structure (FR-14)</h2>
+        <p className="muted">
+          Paste the HTML of a frozen/signed-off prototype to extract its
+          structure for documentation. Pasted as raw HTML text -- there&apos;s
+          no file upload in this slice. Every extracted element cites the
+          actual HTML snippet it came from.
+        </p>
+
+        {prototypeExtractions.map((extraction) => {
+          const content = readPrototypeContent(extraction.content);
+          return (
+            <div className="section-block" key={extraction.id}>
+              <h3>
+                {extraction.title ?? "(untitled prototype)"}{" "}
+                <span className={`badge badge-${extraction.status.toLowerCase()}`}>
+                  {extraction.status.replace("_", " ")}
+                </span>
+              </h3>
+
+              {!content && (
+                <p className="muted">Not extracted yet (see the warning above, if any).</p>
+              )}
+
+              {content &&
+                content.sections.map((section, i) => (
+                  <div key={i} style={{ marginBottom: "0.75rem" }}>
+                    <strong>{section.name}</strong>
+                    <ul>
+                      {section.elements.map((el, j) => (
+                        <li key={j}>
+                          [{el.kind}] {el.label}
+                          {el.details ? ` (${el.details})` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+
+              <ApprovalControls
+                status={extraction.status}
+                idFieldName="prototypeExtractionId"
+                id={extraction.id}
+                transcriptId={transcript.id}
+                approvedBy={extraction.approvedBy}
+                approvedAt={extraction.approvedAt}
+                approveAction={approvePrototypeExtractionAction}
+                rejectAction={rejectPrototypeExtractionAction}
+              />
+
+              {content && brdContent && (
+                <form
+                  className="actions-row"
+                  action={async () => {
+                    "use server";
+                    const formData = new FormData();
+                    formData.set("documentId", brdDocument!.id);
+                    formData.set("prototypeExtractionId", extraction.id);
+                    formData.set("transcriptId", transcript.id);
+                    await generatePrototypeCrossCheckAction(formData);
+                  }}
+                >
+                  <button type="submit">Cross-check against BRD (FR-15)</button>
+                </form>
+              )}
+              {content && !brdContent && (
+                <p className="muted">Generate a BRD first to cross-check this prototype against it.</p>
+              )}
+            </div>
+          );
+        })}
+
+        <form action={addPrototypeAndExtractAction}>
+          <input type="hidden" name="transcriptId" value={transcript.id} />
+          <label htmlFor="prototypeTitle">Title (optional)</label>
+          <input type="text" id="prototypeTitle" name="title" placeholder="e.g. Checkout prototype v3" />
+          <label htmlFor="prototypeHtml">Prototype HTML</label>
+          <textarea
+            id="prototypeHtml"
+            name="rawHtml"
+            required
+            placeholder="Paste the prototype's HTML source here..."
+          />
+          <div className="actions-row">
+            <button type="submit">Extract structure</button>
+          </div>
+        </form>
+      </div>
+
+      {prototypeCrossChecks.length > 0 && (
+        <div className="card">
+          <h2>Prototype cross-check (FR-15)</h2>
+          <div className="warning-banner">
+            Scope: this only checks static structure and visible content
+            (labels, presence of elements, markup attributes) against what
+            the BRD documents. It does NOT verify runtime/interactive
+            behavior (click handlers, API calls, dynamic state) -- nothing in
+            this tool executes the prototype.
+          </div>
+
+          {prototypeCrossChecks.map((crossCheck) => {
+            const content = readCrossCheckContent(crossCheck.content);
+            if (!content) return null;
+            return (
+              <div className="section-block" key={crossCheck.id}>
+                <h3>
+                  <span className={`badge badge-${crossCheck.status.toLowerCase()}`}>
+                    {crossCheck.status.replace("_", " ")}
+                  </span>
+                </h3>
+
+                {content.mismatches.length === 0 ? (
+                  <p className="muted">No mismatches found.</p>
+                ) : (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Topic</th>
+                        <th>Documented</th>
+                        <th>Prototype shows</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {content.mismatches.map((m, i) => (
+                        <tr key={i}>
+                          <td>{m.topic}</td>
+                          <td>{m.documented}</td>
+                          <td>{m.prototypeShows}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                {content.notCheckable.length > 0 && (
+                  <div className="gaps-block">
+                    <strong>Not checkable from static structure:</strong>
+                    <ul>
+                      {content.notCheckable.map((gap, i) => (
+                        <li key={i}>
+                          <strong>{gap.section}:</strong> {gap.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <ApprovalControls
+                  status={crossCheck.status}
+                  idFieldName="crossCheckId"
+                  id={crossCheck.id}
+                  transcriptId={transcript.id}
+                  approvedBy={crossCheck.approvedBy}
+                  approvedAt={crossCheck.approvedAt}
+                  approveAction={approvePrototypeCrossCheckAction}
+                  rejectAction={rejectPrototypeCrossCheckAction}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 }

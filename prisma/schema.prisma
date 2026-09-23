@@ -1,6 +1,6 @@
 // Data model built up slice by slice, matching the entities in FRD Section 8
-// as each slice needs them. Comparison / DecisionLogEntry are still
-// deferred (FR-12/13) rather than stubbed out ahead of time.
+// as each slice needs them. DecisionLogEntry is still deferred rather than
+// stubbed out ahead of time.
 
 generator client {
   provider = "prisma-client-js"
@@ -35,10 +35,12 @@ model Transcript {
   rawText   String
   createdAt DateTime @default(now())
 
-  documents         RequirementDocument[]
-  actionItems       ActionItem[]
-  devSpecNotes      DevSpecNote[]
-  designSystemNotes DesignSystemNote[]
+  documents            RequirementDocument[]
+  actionItems          ActionItem[]
+  devSpecNotes         DevSpecNote[]
+  designSystemNotes    DesignSystemNote[]
+  comparisons          Comparison[]
+  prototypeExtractions PrototypeExtraction[]
 }
 
 model RequirementDocument {
@@ -54,10 +56,11 @@ model RequirementDocument {
   approvedAt DateTime?
   createdAt  DateTime       @default(now())
 
-  transcripts   Transcript[]
-  tickets       Ticket[]
-  diagrams      Diagram[]
-  wireframeSets WireframeSet[]
+  transcripts          Transcript[]
+  tickets              Ticket[]
+  diagrams             Diagram[]
+  wireframeSets        WireframeSet[]
+  prototypeCrossChecks PrototypeCrossCheck[]
 }
 
 enum TicketType {
@@ -172,6 +175,71 @@ model WireframeSet {
 
   designSystemNoteId String
   designSystemNote   DesignSystemNote @relation(fields: [designSystemNoteId], references: [id])
+}
+
+// FR-12/13: compares two freely pasted text blocks (confirmed with the
+// user rather than tied to a specific entity type -- either side can be a
+// generated artifact's text pasted in, fresh feedback, anything). textA/
+// textB are always saved immediately so nothing pasted is lost if
+// generation fails; content stays null until it succeeds (same principle
+// as Transcript vs RequirementDocument in slice 1).
+model Comparison {
+  id           String     @id @default(cuid())
+  transcriptId String
+  transcript   Transcript @relation(fields: [transcriptId], references: [id])
+  labelA       String?
+  textA        String
+  labelB       String?
+  textB        String
+  // { rows: [{ topic, aSummary, bSummary, isConflict, sourceRefs }] }
+  content    Json?
+  status     DocumentStatus @default(DRAFT)
+  approvedBy String?
+  approvedAt DateTime?
+  createdAt  DateTime       @default(now())
+}
+
+// FR-14's "frozen/signed-off HTML prototype" input -- pasted as raw HTML
+// text (confirmed with the user; no file upload infrastructure exists).
+// rawHtml is always saved immediately, same always-preserved-input
+// principle as Comparison above.
+model PrototypeExtraction {
+  id           String     @id @default(cuid())
+  transcriptId String
+  transcript   Transcript @relation(fields: [transcriptId], references: [id])
+  title        String?
+  rawHtml      String
+  // { title, sections: [{ name, elements: [{kind,label,details?,sourceRefs}] }] }
+  content    Json?
+  status     DocumentStatus @default(DRAFT)
+  approvedBy String?
+  approvedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  crossChecks PrototypeCrossCheck[]
+}
+
+// FR-15: cross-checks a BRD against an already-extracted prototype
+// structure. Only created once generation succeeds (both its inputs --
+// the BRD and the PrototypeExtraction -- already persist independently of
+// this record, so there's nothing of the user's to lose on failure, unlike
+// Comparison/PrototypeExtraction above). Scoped explicitly to static
+// structure/content, never claiming to verify runtime behavior -- see the
+// prompt in core/llm/prompts.ts and the review page's disclaimer.
+model PrototypeCrossCheck {
+  id   String @id @default(cuid())
+  // { mismatches: [{topic,documented,prototypeShows,sourceRefs}], notCheckable: [{section,reason}] }
+  content    Json
+  status     DocumentStatus @default(DRAFT)
+  approvedBy String?
+  approvedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  sourceDocumentId String
+  sourceDocument   RequirementDocument @relation(fields: [sourceDocumentId], references: [id])
+
+  prototypeExtractionId String
+  prototypeExtraction   PrototypeExtraction @relation(fields: [prototypeExtractionId], references: [id])
 }
 
 model ActionItem {
