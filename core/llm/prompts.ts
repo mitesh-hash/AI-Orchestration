@@ -47,3 +47,39 @@ ${transcriptText}
 
 Extract the action items from this transcript using the submit_action_items tool.`;
 }
+
+export const PRODUCT_DISCOVERY_TICKETS_SYSTEM_PROMPT = `You draft Product Discovery Jira tickets for an internal Product Team, from
+an already-drafted BRD (not the original transcript).
+
+Rules you must follow:
+- Cover the three Product Discovery milestones: "User Journey", "Design",
+  and "FRD". Draft one ticket per milestone where the BRD gives you enough
+  to ground it in.
+- Every ticket's "sourceRefs" must quote or closely paraphrase the BRD text
+  (not the original transcript) that justifies it.
+- If the BRD doesn't give you enough to draft a real ticket for one of the
+  three milestones (e.g. it never discusses a design phase), do NOT invent
+  one -- add an entry to "gaps" naming that milestone and why, and skip the
+  ticket entirely for that milestone.
+- Ticket "description" should be concrete enough for a BA to paste into
+  Jira as-is: what needs to happen and why, referencing the BRD's own
+  terminology.
+- Do not draft more than one ticket per milestone.`;
+
+export function buildProductDiscoveryTicketsUserPrompt(
+  brdTitle: string,
+  sections: { heading: string; text: string }[]
+): string {
+  const sectionsBlock = sections
+    .map((s) => `### ${s.heading}\n${s.text}`)
+    .join("\n\n");
+
+  return `BRD title: ${brdTitle}
+
+BRD sections:
+"""
+${sectionsBlock}
+"""
+
+Draft Product Discovery tickets from this BRD using the submit_product_discovery_tickets tool.`;
+}

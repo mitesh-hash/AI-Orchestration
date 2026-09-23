@@ -22,3 +22,19 @@ export function checkTranscriptInput(
   }
   return { ok: true };
 }
+
+// Same principle as checkTranscriptInput, one link further down the chain:
+// FR-7 drafts tickets from a BRD, so if that BRD has no sections yet
+// (generation failed, or was never run) say so explicitly instead of
+// calling the LLM with nothing to ground a ticket in.
+export function checkBrdContentInput(
+  brd: { sections: unknown[] } | null | undefined
+): InputCheckResult {
+  if (!brd || !Array.isArray(brd.sections) || brd.sections.length === 0) {
+    return {
+      ok: false,
+      reason: "The source BRD has no sections to draft tickets from.",
+    };
+  }
+  return { ok: true };
+}

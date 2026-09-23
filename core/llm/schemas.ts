@@ -51,6 +51,30 @@ export const ActionItemsDraftSchema = z.object({
 });
 export type ActionItemsDraft = z.infer<typeof ActionItemsDraftSchema>;
 
+// FR-7: Product Discovery tickets are drafted per milestone. Kept as a fixed
+// three-way enum (rather than free text) so "which milestones got a ticket"
+// is checkable, and so a milestone with nothing groundable in the BRD shows
+// up as a gap instead of a vague, invented ticket.
+export const PRODUCT_DISCOVERY_MILESTONES = ["User Journey", "Design", "FRD"] as const;
+
+export const TicketDraftSchema = z.object({
+  milestone: z.enum(PRODUCT_DISCOVERY_MILESTONES),
+  title: z.string().min(1),
+  description: z.string().min(1),
+  // Cites the BRD's own text, not the original transcript -- FR-7 derives
+  // tickets from the BRD, one link further down the traceability chain.
+  sourceRefs: z
+    .array(SourceRefSchema)
+    .min(1, "every ticket must cite at least one part of the BRD"),
+});
+export type TicketDraft = z.infer<typeof TicketDraftSchema>;
+
+export const ProductDiscoveryTicketsDraftSchema = z.object({
+  tickets: z.array(TicketDraftSchema),
+  gaps: z.array(GapSchema),
+});
+export type ProductDiscoveryTicketsDraft = z.infer<typeof ProductDiscoveryTicketsDraftSchema>;
+
 // Hand-written JSON Schemas for the Anthropic tool_use input_schema. Kept in
 // lockstep with the Zod schemas above by the tests in tests/llm.test.ts
 // rather than generated, to avoid a codegen dependency for two small shapes.
@@ -112,4 +136,43 @@ export const ACTION_ITEMS_TOOL_JSON_SCHEMA = {
     },
   },
   required: ["items"],
+} as const;
+
+export const PRODUCT_DISCOVERY_TICKETS_TOOL_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    tickets: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          milestone: { type: "string", enum: [...PRODUCT_DISCOVERY_MILESTONES] },
+          title: { type: "string" },
+          description: { type: "string" },
+          sourceRefs: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: { quoteOrParaphrase: { type: "string" } },
+              required: ["quoteOrParaphrase"],
+            },
+          },
+        },
+        required: ["milestone", "title", "description", "sourceRefs"],
+      },
+    },
+    gaps: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          section: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["section", "reason"],
+      },
+    },
+  },
+  required: ["tickets", "gaps"],
 } as const;

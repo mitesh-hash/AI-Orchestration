@@ -2,31 +2,26 @@ import { notFound } from "next/navigation";
 import { getTranscript } from "@/core/db/transcriptRepository";
 import { listDocumentsForTranscript } from "@/core/db/documentRepository";
 import { listActionItemsForTranscript } from "@/core/db/actionItemRepository";
+import { listTicketsForDocument } from "@/core/db/ticketRepository";
 import { UNSPECIFIED_OWNER } from "@/core/guardrails/ownerNormalization";
-import { approveDocumentAction, rejectDocumentAction } from "@/app/actions";
-import type { BrdSection, Gap } from "@/core/llm/schemas";
+import { readBrdContent } from "@/core/documentation/brdContent";
+import {
+  approveDocumentAction,
+  rejectDocumentAction,
+  generateTicketsAction,
+  approveTicketAction,
+  rejectTicketAction,
+} from "@/app/actions";
+import { PRODUCT_DISCOVERY_MILESTONES, type Gap, type SourceRef } from "@/core/llm/schemas";
 
 export const dynamic = "force-dynamic";
 
-interface BrdContent {
-  title: string;
-  sections: BrdSection[];
-}
-
-function readBrdContent(content: unknown): BrdContent | null {
-  if (
-    content &&
-    typeof content === "object" &&
-    "title" in content &&
-    "sections" in content
-  ) {
-    return content as BrdContent;
-  }
-  return null;
-}
-
 function readGaps(gaps: unknown): Gap[] {
   return Array.isArray(gaps) ? (gaps as Gap[]) : [];
+}
+
+function readSourceRefs(sourceRefs: unknown): SourceRef[] {
+  return Array.isArray(sourceRefs) ? (sourceRefs as SourceRef[]) : [];
 }
 
 export default async function ReviewPage({
@@ -46,6 +41,7 @@ export default async function ReviewPage({
   const brdDocument = documents.find((d) => d.type === "BRD") ?? null;
   const brdContent = brdDocument ? readBrdContent(brdDocument.content) : null;
   const gaps = brdDocument ? readGaps(brdDocument.gaps) : [];
+  const tickets = brdDocument ? await listTicketsForDocument(brdDocument.id) : [];
 
   return (
     <>
@@ -107,6 +103,21 @@ export default async function ReviewPage({
                   ))}
                 </ul>
               </div>
+            )}
+
+            {tickets.length === 0 && (
+              <form
+                className="actions-row"
+                action={async () => {
+                  "use server";
+                  const formData = new FormData();
+                  formData.set("documentId", brdDocument!.id);
+                  formData.set("transcriptId", transcript.id);
+                  await generateTicketsAction(formData);
+                }}
+              >
+                <button type="submit">Generate Product Discovery tickets</button>
+              </form>
             )}
           </>
         )}
@@ -181,6 +192,92 @@ export default async function ReviewPage({
           </table>
         )}
       </div>
+
+      {tickets.length > 0 && (
+        <div className="card">
+          <h2>Product Discovery tickets</h2>
+          <p className="muted">
+            Drafts only (FR-9) -- copy approved tickets into Jira by hand. Nothing
+            here has been sent anywhere.
+          </p>
+          {PRODUCT_DISCOVERY_MILESTONES.map((milestone) => {
+            const milestoneTickets = tickets.filter((t) => t.milestone === milestone);
+            if (milestoneTickets.length === 0) return null;
+            return (
+              <div className="section-block" key={milestone}>
+                <h3>{milestone}</h3>
+                {milestoneTickets.map((ticket) => (
+                  <div key={ticket.id} style={{ marginBottom: "1rem" }}>
+                    <p>
+                      <strong>{ticket.title}</strong>{" "}
+                      <span className={`badge badge-${ticket.status.toLowerCase()}`}>
+                        {ticket.status.replace("_", " ")}
+                      </span>
+                    </p>
+                    <p>{ticket.description}</p>
+                    <div className="source-refs">
+                      From the BRD:
+                      <ul>
+                        {readSourceRefs(ticket.sourceRefs).map((ref, j) => (
+                          <li key={j}>&ldquo;{ref.quoteOrParaphrase}&rdquo;</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {ticket.status === "PENDING_APPROVAL" && (
+                      <form
+                        className="actions-row"
+                        action={async (formData) => {
+                          "use server";
+                          formData.set("ticketId", ticket.id);
+                          formData.set("transcriptId", transcript.id);
+                          const decision = formData.get("decision");
+                          if (decision === "approve") {
+                            await approveTicketAction(formData);
+                          } else {
+                            await rejectTicketAction(formData);
+                          }
+                        }}
+                      >
+                        <input
+                          className="approver-input"
+                          type="text"
+                          name="approverName"
+                          placeholder="Your name"
+                          required
+                        />
+                        <button type="submit" name="decision" value="approve">
+                          Approve
+                        </button>
+                        <button
+                          type="submit"
+                          name="decision"
+                          value="reject"
+                          className="secondary"
+                        >
+                          Reject
+                        </button>
+                      </form>
+                    )}
+                    {ticket.status === "APPROVED" && (
+                      <p className="muted">
+                        Approved by {ticket.approvedBy} on{" "}
+                        {ticket.approvedAt?.toISOString().slice(0, 10)}.
+                      </p>
+                    )}
+                    {ticket.status === "REJECTED" && (
+                      <p className="muted">
+                        Rejected by {ticket.approvedBy} on{" "}
+                        {ticket.approvedAt?.toISOString().slice(0, 10)}.
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 }

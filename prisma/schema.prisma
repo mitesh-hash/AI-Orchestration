@@ -1,8 +1,6 @@
-// Data model for the vertical slice: Transcript -> RequirementDocument (BRD)
-// and Transcript -> ActionItem, matching the entities in FRD Section 8 that
-// this slice actually touches. Ticket / Comparison / DecisionLogEntry are
-// deferred to the slices that need them (FR-7/8, FR-12/13) rather than
-// stubbed out ahead of time.
+// Data model built up slice by slice, matching the entities in FRD Section 8
+// as each slice needs them. Comparison / DecisionLogEntry are still
+// deferred (FR-12/13) rather than stubbed out ahead of time.
 
 generator client {
   provider = "prisma-client-js"
@@ -55,6 +53,35 @@ model RequirementDocument {
   createdAt  DateTime       @default(now())
 
   transcripts Transcript[]
+  tickets     Ticket[]
+}
+
+enum TicketType {
+  PRODUCT_DISCOVERY
+  DEVELOPMENT
+}
+
+model Ticket {
+  id          String         @id @default(cuid())
+  type        TicketType
+  // Only meaningful for PRODUCT_DISCOVERY tickets today ("User Journey" |
+  // "Design" | "FRD", enforced by the Zod schema at generation time, FR-7).
+  // Left as a free string rather than a Prisma enum because DEVELOPMENT
+  // tickets (FR-8, later) won't use this taxonomy.
+  milestone   String?
+  title       String
+  description String
+  // Citations back into the source BRD's content, mirroring how
+  // RequirementDocument cites the transcript (FR-2's traceability principle
+  // applied one level up the chain).
+  sourceRefs  Json
+  status      DocumentStatus @default(DRAFT)
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime       @default(now())
+
+  sourceDocumentId String
+  sourceDocument    RequirementDocument @relation(fields: [sourceDocumentId], references: [id])
 }
 
 model ActionItem {
