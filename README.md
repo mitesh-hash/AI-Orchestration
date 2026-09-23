@@ -76,6 +76,22 @@ tickets. Built incrementally from the FRD, one vertical slice at a time.
     guessed pass or fail. The review page carries an explicit scope
     disclaimer alongside the results.
 
+**Slice 6 (FR-16, FR-17):**
+14. Generate developer specs -- validations, business rules, and
+    error/success messages -- from an existing BRD (the "feature
+    description" FR-16 names) and an already-extracted prototype structure
+    (the "frozen prototype", FR-14's output). No new input mechanism: this
+    slot naturally consumes the two artifacts slice 5 already introduced.
+15. Every rule is either grounded in an explicit statement in the BRD or
+    prototype (`needsConfirmation: false`) or flagged `needsConfirmation:
+    true` (FR-17) -- an inferred rule (e.g. "this looks like an email
+    field, so it probably needs email format validation") is never
+    presented as settled. Even a needs-confirmation rule still cites what
+    prompted it (the BRD text or prototype element); the flag carries the
+    certainty signal, not the presence of a citation. Rendered with a
+    CONFIRMED/NEEDS CONFIRMATION badge per rule, grouped by type
+    (Validations / Business Rules / Error-Success Messages).
+
 Nothing is written to Jira, Confluence, or Google Drive/Docs in any slice so
 far -- those integrations, and the remaining FRs, are deferred to later
 slices.
@@ -110,6 +126,7 @@ core/
   comparison/           generateComparison() -- FR-12/FR-13
                         generatePrototypeStructure() -- FR-14
                         generatePrototypeCrossCheck() -- FR-15
+  devspec/              generateDevSpec() -- FR-16/FR-17
   db/                   Prisma-backed repositories
 prisma/                 schema + migrations
 tests/                  unit tests, one folder per core module
@@ -117,12 +134,13 @@ tests/                  unit tests, one folder per core module
 
 Each `core/*` module only talks to the LLM and guardrail layers directly --
 nothing in `core/documentation`, `core/actions-tickets`, `core/diagramming`,
-or `core/comparison` can write to the database or call an external system
-on its own, and nothing outside `core/guardrails/approvalGate.ts` can mark
-any of the app's seven approvable entity types (BRD, ticket, diagram,
-wireframe set, comparison, prototype extraction, prototype cross-check)
-APPROVED or REJECTED -- the same guardrail function is reused for all of
-them, backed by a different repository each time (see `core/db/*.ts`).
+`core/comparison`, or `core/devspec` can write to the database or call an
+external system on its own, and nothing outside
+`core/guardrails/approvalGate.ts` can mark any of the app's eight
+approvable entity types (BRD, ticket, diagram, wireframe set, comparison,
+prototype extraction, prototype cross-check, developer spec) APPROVED or
+REJECTED -- the same guardrail function is reused for all of them, backed
+by a different repository each time (see `core/db/*.ts`).
 
 `Comparison` and `PrototypeExtraction` follow a create-draft-then-fill
 pattern: the row is created immediately with the user's pasted text/HTML
@@ -142,6 +160,12 @@ graph (every node schema-required to cite the BRD), and
 Mermaid syntax. That keeps the citation guardrail enforceable at the node
 level; trusting the model to hand-write correct, grounded Mermaid text
 directly would not.
+
+Naming note: `DevSpecNote` (FR-8's pasted free-text input, from slice 3) and
+`DevSpec` (FR-16/17's generated output, this slice) are two different
+entities that happen to share most of a name -- the review page labels the
+pasted-notes card "Developer specs / design notes (FR-8)" and the generated
+one "Developer Spec (FR-16/17)" to keep them visually distinct.
 
 Tickets can be generated from a BRD in any status (draft, pending, or
 approved) -- the ticket gets its own independent approval, and the review
@@ -197,12 +221,12 @@ Anthropic API key.
   Confluence write-back are still out of scope (see the FRD's remaining
   FRs).
 - Development tickets (FR-8) take pasted free-text spec/design notes rather
-  than reading FR-11 (wireframes) or FR-16 (generated dev specs), since
-  neither existed at the time FR-8 was built. FR-11 now exists (this
-  slice); wiring dev-ticket generation to consume a wireframe set's output
-  as an alternative input path, instead of or alongside the free-text
-  paste, is a reasonable small follow-up -- the ticket/guardrail machinery
-  underneath doesn't need to change either way.
+  than reading FR-11's wireframes or FR-16's generated dev specs, since
+  neither existed at the time FR-8 was built. Both now exist; wiring
+  dev-ticket generation to also consume a wireframe set's or a DevSpec's
+  output as an alternative input path, instead of or alongside the
+  free-text paste, is a reasonable small follow-up -- the ticket/guardrail
+  machinery underneath doesn't need to change either way.
 - `DesignSystemNote` (FR-11) is scoped per-transcript, like `DevSpecNote`,
   so a design system reference has to be re-pasted for every new
   transcript even though a real design system rarely changes between

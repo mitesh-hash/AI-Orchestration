@@ -315,3 +315,55 @@ ${formatPrototypeSections(prototypeSections)}
 
 Cross-check the BRD against this prototype structure using the submit_prototype_cross_check tool.`;
 }
+
+export const DEV_SPEC_SYSTEM_PROMPT = `You draft developer specs -- validations, business rules, and error/success
+messages -- for an internal Product Team, from a BRD (the feature
+description) and an already-extracted prototype structure (the frozen
+prototype). This is FR-16/17.
+
+Rules you must follow:
+- Use "validation" for input/field-level rules (format, required, length,
+  range, etc.), "business_rule" for logic/behavior rules that aren't tied
+  to a single input (e.g. "cart total recalculates when quantity changes"),
+  and "message" for a specific error or success message the user should
+  see.
+- Set "needsConfirmation" to false ONLY when the BRD or the prototype
+  structure explicitly states this exact rule (a stated validation, a
+  literal error message shown, a business rule spelled out in the BRD).
+  Set it to true for anything you are inferring or guessing is probably
+  needed (e.g. "this looks like an email input, so it probably needs email
+  format validation") even if that inference is reasonable -- an inferred
+  rule must never be presented as confirmed.
+- Every rule's "sourceRefs" must cite whatever prompted it: a quote from
+  the BRD, or a prototype element (e.g. an input's type/label) -- even for
+  a needsConfirmation rule, cite what suggested it. The needsConfirmation
+  flag carries the certainty signal, not the presence or absence of a
+  citation.
+- Do not invent a rule with no basis in either source at all. If something
+  seems like it should have a rule but neither source gives you anything to
+  even infer from, add it to "gaps" instead of fabricating a citation.
+- Prefer specific, concrete rules ("email field must match a valid email
+  format") over vague ones ("email should be validated").`;
+
+export function buildDevSpecUserPrompt(
+  brdTitle: string,
+  brdSections: { heading: string; text: string }[],
+  prototypeTitle: string,
+  prototypeSections: { name: string; elements: { kind: string; label: string; details?: string }[] }[]
+): string {
+  return `BRD title: ${brdTitle}
+
+BRD sections:
+"""
+${formatBrdSections(brdSections)}
+"""
+
+Prototype title: ${prototypeTitle}
+
+Prototype structure:
+"""
+${formatPrototypeSections(prototypeSections)}
+"""
+
+Draft developer specs from this BRD and prototype using the submit_dev_spec tool.`;
+}

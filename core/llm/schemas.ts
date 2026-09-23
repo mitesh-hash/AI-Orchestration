@@ -258,6 +258,34 @@ export const PrototypeCrossCheckDraftSchema = z.object({
 });
 export type PrototypeCrossCheckDraft = z.infer<typeof PrototypeCrossCheckDraftSchema>;
 
+// FR-16/17: validations, business rules, and error/success messages,
+// generated from the BRD (feature description) and an extracted prototype
+// structure. needsConfirmation is the schema-level enforcement of FR-17 --
+// every rule carries it, so a rule that isn't explicitly confirmed by
+// either source can never be silently presented as settled.
+export const DEV_SPEC_RULE_TYPES = ["validation", "business_rule", "message"] as const;
+
+export const DevSpecRuleSchema = z.object({
+  type: z.enum(DEV_SPEC_RULE_TYPES),
+  description: z.string().min(1),
+  needsConfirmation: z.boolean(),
+  // Even a needsConfirmation rule must cite what prompted it (e.g. an
+  // email-typed input in the prototype) -- the citation shows why it's a
+  // reasonable candidate, not that it's confirmed. It's the
+  // needsConfirmation flag, not the presence of a citation, that carries
+  // the actual certainty signal.
+  sourceRefs: z
+    .array(SourceRefSchema)
+    .min(1, "every rule must cite the BRD or prototype element that prompted it"),
+});
+export type DevSpecRule = z.infer<typeof DevSpecRuleSchema>;
+
+export const DevSpecDraftSchema = z.object({
+  rules: z.array(DevSpecRuleSchema),
+  gaps: z.array(GapSchema),
+});
+export type DevSpecDraft = z.infer<typeof DevSpecDraftSchema>;
+
 // Hand-written JSON Schemas for the Anthropic tool_use input_schema. Kept in
 // lockstep with the Zod schemas above by the tests in tests/llm.test.ts
 // rather than generated, to avoid a codegen dependency for two small shapes.
@@ -610,4 +638,43 @@ export const PROTOTYPE_CROSS_CHECK_TOOL_JSON_SCHEMA = {
     },
   },
   required: ["mismatches", "notCheckable"],
+} as const;
+
+export const DEV_SPEC_TOOL_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    rules: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: [...DEV_SPEC_RULE_TYPES] },
+          description: { type: "string" },
+          needsConfirmation: { type: "boolean" },
+          sourceRefs: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: { quoteOrParaphrase: { type: "string" } },
+              required: ["quoteOrParaphrase"],
+            },
+          },
+        },
+        required: ["type", "description", "needsConfirmation", "sourceRefs"],
+      },
+    },
+    gaps: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          section: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["section", "reason"],
+      },
+    },
+  },
+  required: ["rules", "gaps"],
 } as const;

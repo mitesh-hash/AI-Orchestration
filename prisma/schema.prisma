@@ -61,6 +61,7 @@ model RequirementDocument {
   diagrams             Diagram[]
   wireframeSets        WireframeSet[]
   prototypeCrossChecks PrototypeCrossCheck[]
+  devSpecs             DevSpec[]
 }
 
 enum TicketType {
@@ -217,6 +218,7 @@ model PrototypeExtraction {
   createdAt  DateTime       @default(now())
 
   crossChecks PrototypeCrossCheck[]
+  devSpecs    DevSpec[]
 }
 
 // FR-15: cross-checks a BRD against an already-extracted prototype
@@ -229,6 +231,31 @@ model PrototypeExtraction {
 model PrototypeCrossCheck {
   id   String @id @default(cuid())
   // { mismatches: [{topic,documented,prototypeShows,sourceRefs}], notCheckable: [{section,reason}] }
+  content    Json
+  status     DocumentStatus @default(DRAFT)
+  approvedBy String?
+  approvedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  sourceDocumentId String
+  sourceDocument   RequirementDocument @relation(fields: [sourceDocumentId], references: [id])
+
+  prototypeExtractionId String
+  prototypeExtraction   PrototypeExtraction @relation(fields: [prototypeExtractionId], references: [id])
+}
+
+// FR-16/17: validations, business rules, and error/success messages,
+// generated from the BRD (the "feature description" FR-16 names) and an
+// already-extracted prototype structure (FR-14, the "frozen prototype").
+// Same shape as PrototypeCrossCheck: only created once generation
+// succeeds, since both inputs already persist independently -- nothing of
+// the user's to lose on a failed attempt. FR-17's "needs confirmation"
+// flag lives per-rule inside content, not as a separate list: a rule
+// either cites something the BRD/prototype explicitly states, or it's
+// marked needsConfirmation and must never render as settled.
+model DevSpec {
+  id   String @id @default(cuid())
+  // { rules: [{type,description,needsConfirmation,sourceRefs}], gaps: [{section,reason}] }
   content    Json
   status     DocumentStatus @default(DRAFT)
   approvedBy String?

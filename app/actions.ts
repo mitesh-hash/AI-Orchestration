@@ -37,6 +37,7 @@ import {
   createPrototypeCrossCheck,
   prototypeCrossCheckApprovalRepo,
 } from "@/core/db/prototypeCrossCheckRepository";
+import { createDevSpec, devSpecApprovalRepo } from "@/core/db/devSpecRepository";
 import { generateBrd } from "@/core/documentation/generateBrd";
 import { extractActionItems } from "@/core/actions-tickets/extractActionItems";
 import { generateProductDiscoveryTickets } from "@/core/actions-tickets/generateProductDiscoveryTickets";
@@ -47,6 +48,7 @@ import { generateComparison } from "@/core/comparison/generateComparison";
 import { generatePrototypeStructure } from "@/core/comparison/generatePrototypeStructure";
 import { generatePrototypeCrossCheck } from "@/core/comparison/generatePrototypeCrossCheck";
 import { readPrototypeContent } from "@/core/comparison/prototypeContent";
+import { generateDevSpec } from "@/core/devspec/generateDevSpec";
 import { approveDocument, rejectDocument } from "@/core/guardrails/approvalGate";
 import { readBrdContent } from "@/core/documentation/brdContent";
 
@@ -502,5 +504,72 @@ export async function rejectPrototypeCrossCheckAction(formData: FormData): Promi
   const transcriptId = String(formData.get("transcriptId") ?? "");
 
   await rejectDocument(prototypeCrossCheckApprovalRepo, crossCheckId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+// FR-16/17: drafts developer specs (validations, business rules,
+// error/success messages) from an existing BRD and an existing prototype
+// extraction. Both inputs already persist independently, so like the
+// prototype cross-check there's no "always save the input" step -- a
+// failed attempt is just re-clickable, nothing of the user's is at risk.
+export async function generateDevSpecAction(formData: FormData): Promise<void> {
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+  const documentId = String(formData.get("documentId") ?? "");
+  const prototypeExtractionId = String(formData.get("prototypeExtractionId") ?? "");
+
+  const warnings: string[] = [];
+
+  try {
+    const [document, extraction] = await Promise.all([
+      getDocument(documentId),
+      getPrototypeExtraction(prototypeExtractionId),
+    ]);
+    const brdContent = document ? readBrdContent(document.content) : null;
+    const prototypeContent = extraction ? readPrototypeContent(extraction.content) : null;
+
+    if (!brdContent || !prototypeContent) {
+      warnings.push("Developer spec not generated: could not read the BRD or prototype content.");
+    } else {
+      const result = await generateDevSpec(brdContent, prototypeContent);
+      if (result.status === "insufficient_input") {
+        warnings.push(`Developer spec not generated: ${result.reason}`);
+      } else {
+        await createDevSpec(documentId, prototypeExtractionId, result.draft);
+        const needsConfirmationCount = result.draft.rules.filter((r) => r.needsConfirmation).length;
+        if (needsConfirmationCount > 0) {
+          warnings.push(
+            `${needsConfirmationCount} rule${needsConfirmationCount === 1 ? "" : "s"} need${needsConfirmationCount === 1 ? "s" : ""} confirmation (FR-17) -- see the developer spec below.`
+          );
+        }
+        if (result.draft.gaps.length > 0) {
+          const gapSummary = result.draft.gaps.map((g) => `${g.section}: ${g.reason}`).join(" | ");
+          warnings.push(`Some areas had no basis to draft a rule at all: ${gapSummary}`);
+        }
+      }
+    }
+  } catch (err) {
+    warnings.push(`Developer spec generation failed: ${errorMessage(err)}`);
+  }
+
+  const query = warnings.length > 0 ? `?warning=${encodeURIComponent(warnings.join(" | "))}` : "";
+  redirect(`/review/${transcriptId}${query}`);
+}
+
+// FR-18/FR-19 for developer specs -- identical guardrail, different repo.
+export async function approveDevSpecAction(formData: FormData): Promise<void> {
+  const devSpecId = String(formData.get("devSpecId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await approveDocument(devSpecApprovalRepo, devSpecId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+export async function rejectDevSpecAction(formData: FormData): Promise<void> {
+  const devSpecId = String(formData.get("devSpecId") ?? "");
+  const approverName = String(formData.get("approverName") ?? "");
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+
+  await rejectDocument(devSpecApprovalRepo, devSpecId, approverName);
   revalidatePath(`/review/${transcriptId}`);
 }

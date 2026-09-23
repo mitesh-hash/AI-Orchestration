@@ -10,6 +10,7 @@ import { listWireframeSetsForTranscript } from "@/core/db/wireframeSetRepository
 import { listComparisonsForTranscript } from "@/core/db/comparisonRepository";
 import { listPrototypeExtractionsForTranscript } from "@/core/db/prototypeExtractionRepository";
 import { listPrototypeCrossChecksForTranscript } from "@/core/db/prototypeCrossCheckRepository";
+import { listDevSpecsForTranscript } from "@/core/db/devSpecRepository";
 import { UNSPECIFIED_OWNER } from "@/core/guardrails/ownerNormalization";
 import { readBrdContent } from "@/core/documentation/brdContent";
 import { readPrototypeContent } from "@/core/comparison/prototypeContent";
@@ -37,6 +38,9 @@ import {
   generatePrototypeCrossCheckAction,
   approvePrototypeCrossCheckAction,
   rejectPrototypeCrossCheckAction,
+  generateDevSpecAction,
+  approveDevSpecAction,
+  rejectDevSpecAction,
 } from "@/app/actions";
 import {
   PRODUCT_DISCOVERY_MILESTONES,
@@ -47,6 +51,7 @@ import {
   type WireframeOption,
   type ComparisonRow,
   type PrototypeMismatch,
+  type DevSpecRule,
 } from "@/core/llm/schemas";
 import type { Ticket } from "@prisma/client";
 
@@ -107,9 +112,22 @@ function readCrossCheckContent(content: unknown): CrossCheckContent | null {
   return null;
 }
 
+interface DevSpecContent {
+  rules: DevSpecRule[];
+  gaps: Gap[];
+}
+
+function readDevSpecContent(content: unknown): DevSpecContent | null {
+  if (content && typeof content === "object" && "rules" in content) {
+    return content as DevSpecContent;
+  }
+  return null;
+}
+
 // Shared by every approvable entity on this page (BRD, tickets, diagram,
-// wireframe set, comparison, prototype extraction, cross-check) -- same
-// status badge, approve/reject form, and approved/rejected notice either
+// wireframe set, comparison, prototype extraction, cross-check, developer
+// spec) -- same status badge, approve/reject form, and approved/rejected
+// notice either
 // way. The inline server action only closes over the two ids it needs
 // (both plain strings), which is what makes it valid to define per item.
 function ApprovalControls({
@@ -232,6 +250,7 @@ export default async function ReviewPage({
     comparisons,
     prototypeExtractions,
     prototypeCrossChecks,
+    devSpecs,
   ] = await Promise.all([
     listDocumentsForTranscript(params.id),
     listActionItemsForTranscript(params.id),
@@ -243,6 +262,7 @@ export default async function ReviewPage({
     listComparisonsForTranscript(params.id),
     listPrototypeExtractionsForTranscript(params.id),
     listPrototypeCrossChecksForTranscript(params.id),
+    listDevSpecsForTranscript(params.id),
   ]);
   const brdDocument = documents.find((d) => d.type === "BRD") ?? null;
   const brdContent = brdDocument ? readBrdContent(brdDocument.content) : null;
@@ -744,22 +764,38 @@ export default async function ReviewPage({
               />
 
               {content && brdContent && (
-                <form
-                  className="actions-row"
-                  action={async () => {
-                    "use server";
-                    const formData = new FormData();
-                    formData.set("documentId", brdDocument!.id);
-                    formData.set("prototypeExtractionId", extraction.id);
-                    formData.set("transcriptId", transcript.id);
-                    await generatePrototypeCrossCheckAction(formData);
-                  }}
-                >
-                  <button type="submit">Cross-check against BRD (FR-15)</button>
-                </form>
+                <div className="actions-row">
+                  <form
+                    action={async () => {
+                      "use server";
+                      const formData = new FormData();
+                      formData.set("documentId", brdDocument!.id);
+                      formData.set("prototypeExtractionId", extraction.id);
+                      formData.set("transcriptId", transcript.id);
+                      await generatePrototypeCrossCheckAction(formData);
+                    }}
+                  >
+                    <button type="submit">Cross-check against BRD (FR-15)</button>
+                  </form>
+                  <form
+                    action={async () => {
+                      "use server";
+                      const formData = new FormData();
+                      formData.set("documentId", brdDocument!.id);
+                      formData.set("prototypeExtractionId", extraction.id);
+                      formData.set("transcriptId", transcript.id);
+                      await generateDevSpecAction(formData);
+                    }}
+                  >
+                    <button type="submit">Generate developer spec (FR-16/17)</button>
+                  </form>
+                </div>
               )}
               {content && !brdContent && (
-                <p className="muted">Generate a BRD first to cross-check this prototype against it.</p>
+                <p className="muted">
+                  Generate a BRD first to cross-check or generate developer specs against
+                  this prototype.
+                </p>
               )}
             </div>
           );
@@ -855,6 +891,86 @@ export default async function ReviewPage({
           })}
         </div>
       )}
+
+      {devSpecs.map((devSpec) => {
+        const content = readDevSpecContent(devSpec.content);
+        if (!content) return null;
+        const rulesByType: { type: DevSpecRule["type"]; label: string }[] = [
+          { type: "validation", label: "Validations" },
+          { type: "business_rule", label: "Business Rules" },
+          { type: "message", label: "Error / Success Messages" },
+        ];
+        return (
+          <div className="card" key={devSpec.id}>
+            <h2>
+              Developer Spec (FR-16/17){" "}
+              <span className={`badge badge-${devSpec.status.toLowerCase()}`}>
+                {devSpec.status.replace("_", " ")}
+              </span>
+            </h2>
+            <p className="muted">
+              Generated from the BRD and the extracted prototype above. A rule
+              not explicitly stated in either source is marked{" "}
+              <strong>needs confirmation</strong> rather than presented as
+              final (FR-17).
+            </p>
+
+            {rulesByType.map(({ type, label }) => {
+              const rules = content.rules.filter((r) => r.type === type);
+              if (rules.length === 0) return null;
+              return (
+                <div className="section-block" key={type}>
+                  <h3>{label}</h3>
+                  {rules.map((rule, i) => (
+                    <div key={i} style={{ marginBottom: "0.75rem" }}>
+                      <p>
+                        {rule.description}{" "}
+                        {rule.needsConfirmation ? (
+                          <span className="badge badge-rejected">NEEDS CONFIRMATION</span>
+                        ) : (
+                          <span className="badge badge-approved">CONFIRMED</span>
+                        )}
+                      </p>
+                      <div className="source-refs">
+                        Source references:
+                        <ul>
+                          {readSourceRefs(rule.sourceRefs).map((ref, j) => (
+                            <li key={j}>&ldquo;{ref.quoteOrParaphrase}&rdquo;</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+
+            {content.gaps.length > 0 && (
+              <div className="gaps-block">
+                <strong>No basis to draft a rule at all:</strong>
+                <ul>
+                  {content.gaps.map((gap, i) => (
+                    <li key={i}>
+                      <strong>{gap.section}:</strong> {gap.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <ApprovalControls
+              status={devSpec.status}
+              idFieldName="devSpecId"
+              id={devSpec.id}
+              transcriptId={transcript.id}
+              approvedBy={devSpec.approvedBy}
+              approvedAt={devSpec.approvedAt}
+              approveAction={approveDevSpecAction}
+              rejectAction={rejectDevSpecAction}
+            />
+          </div>
+        );
+      })}
     </>
   );
 }
