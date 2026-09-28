@@ -68,6 +68,10 @@ import { readPrototypeContent } from "@/core/comparison/prototypeContent";
 import { generateDevSpec } from "@/core/devspec/generateDevSpec";
 import { approveDocument, rejectDocument } from "@/core/guardrails/approvalGate";
 import { readBrdContent, readFrdContent } from "@/core/documentation/brdContent";
+import {
+  extractGoogleDocId,
+  fetchGoogleDocTranscript,
+} from "@/core/transcripts/fetchGoogleDocTranscript";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Unknown error.";
@@ -79,16 +83,43 @@ function errorMessage(err: unknown): string {
 // warning on the review page -- it never crashes the request and never
 // falls back to inventing content.
 export async function processTranscriptAction(formData: FormData): Promise<void> {
-  const rawText = String(formData.get("rawText") ?? "");
+  const rawInput = String(formData.get("rawText") ?? "");
   const title = String(formData.get("title") ?? "").trim() || undefined;
   const meetingDateRaw = String(formData.get("meetingDate") ?? "");
   const meetingDate = meetingDateRaw ? new Date(meetingDateRaw) : new Date();
 
+  // FR-1: the same field doubles as a Google Doc link input (confirmed with
+  // the user) -- if what was pasted is a Google Docs URL, fetch its content
+  // instead of treating the URL itself as the transcript text. A failed
+  // fetch never creates a transcript with nothing to review; it goes back
+  // to the form with an explicit reason instead of the usual warning-banner
+  // pattern used once a transcript already exists.
+  let rawText = rawInput;
+  let source: "paste" | "google_doc" = "paste";
+  let sourceUrl: string | undefined;
+  let sourceTitle: string | undefined;
+
+  if (extractGoogleDocId(rawInput)) {
+    const fetchResult = await fetchGoogleDocTranscript(rawInput.trim());
+    if (fetchResult.status === "error") {
+      redirect(
+        `/?error=${encodeURIComponent(`Could not import that Google Doc: ${fetchResult.reason}`)}`
+      );
+      return;
+    }
+    rawText = fetchResult.text;
+    source = "google_doc";
+    sourceUrl = rawInput.trim();
+    sourceTitle = fetchResult.title;
+  }
+
   const transcript = await createTranscript({
     rawText,
-    title,
+    title: title ?? sourceTitle,
     meetingDate,
-    source: "paste",
+    source,
+    sourceUrl,
+    sourceTitle,
   });
 
   const warnings: string[] = [];
