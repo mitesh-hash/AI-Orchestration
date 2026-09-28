@@ -92,9 +92,30 @@ tickets. Built incrementally from the FRD, one vertical slice at a time.
     CONFIRMED/NEEDS CONFIRMATION badge per rule, grouped by type
     (Validations / Business Rules / Error-Success Messages).
 
+**Slice 7 (FR-3, FR-4, FR-5a):**
+16. Generate an FRD from an existing BRD plus whichever of the User Flow
+    diagram, wireframe options, and developer spec have been generated so
+    far (FR-3). Only the BRD is mandatory; each of the other three is
+    optional -- whichever hasn't been generated yet becomes an explicit gap
+    in the FRD rather than blocking generation or being silently skipped.
+    The FRD reuses the BRD's exact `{title, sections}` shape and citation
+    contract (aliased schema/validator, not duplicated), since it's
+    structurally the same kind of document with a different audience/scope.
+17. Generate a PRD from an FRD once that FRD has been approved/finalized
+    (FR-4) -- enforced as a DB-state check at the action layer, not inside
+    the generation module itself. The PRD is a business-facing rewrite; it
+    introduces no new scope beyond what the FRD already states, and any
+    gaps still open in the FRD are carried forward rather than resolved.
+18. Once a PRD is approved, the review page offers a deterministic,
+    LLM-free Markdown rendering of it (FR-5a) formatted for pasting into
+    Confluence, plus an optional field to record the real Confluence page's
+    title/URL for reference. Consistent with every other "integration" in
+    this app (Jira tickets included): **nothing here calls the Confluence
+    API** -- the human copies the Markdown into the real page themselves.
+
 Nothing is written to Jira, Confluence, or Google Drive/Docs in any slice so
-far -- those integrations, and the remaining FRs, are deferred to later
-slices.
+far -- those integrations (as live API calls) and Google Drive/Docs
+transcript import are deferred to later slices.
 
 ## Stack
 
@@ -217,9 +238,9 @@ Anthropic API key.
   pulls in React 19 and breaking API changes. Deferred rather than done as
   part of this slice, since this is an internal-only tool -- worth
   revisiting before wider rollout.
-- Google Drive/Docs transcript import, FRD/PRD generation, and the
-  Confluence write-back are still out of scope (see the FRD's remaining
-  FRs).
+- Google Drive/Docs transcript import is still out of scope (see the FRD's
+  remaining FRs). FRD/PRD generation (FR-3/4) and the Confluence reference
+  (FR-5a) are now built as of Slice 7.
 - Development tickets (FR-8) take pasted free-text spec/design notes rather
   than reading FR-11's wireframes or FR-16's generated dev specs, since
   neither existed at the time FR-8 was built. Both now exist; wiring

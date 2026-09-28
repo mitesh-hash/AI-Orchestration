@@ -35,6 +35,17 @@ export const BrdDraftSchema = z.object({
 });
 export type BrdDraft = z.infer<typeof BrdDraftSchema>;
 
+// FR-3's FRD and FR-4's PRD are both "cited sections + gaps" -- the exact
+// same shape as a BRD draft, just assembled from different sources (a BRD
+// + design-stage outputs + dev spec, vs. a finalized FRD). Aliased rather
+// than duplicated so there's one validation path; the alias names keep call
+// sites (generateFrd, generatePrd) reading clearly regardless.
+export const FrdDraftSchema = BrdDraftSchema;
+export type FrdDraft = BrdDraft;
+
+export const PrdDraftSchema = BrdDraftSchema;
+export type PrdDraft = BrdDraft;
+
 // FR-6: owner is nullable on purpose — null means "not stated in the
 // transcript" and is normalized to the literal string "Owner not
 // specified" by the guardrails layer, never guessed at here.
@@ -328,6 +339,11 @@ export const BRD_TOOL_JSON_SCHEMA = {
   },
   required: ["title", "sections", "gaps"],
 } as const;
+
+// Same shape as BRD_TOOL_JSON_SCHEMA -- aliased for the same reason as
+// FrdDraftSchema/PrdDraftSchema above.
+export const FRD_TOOL_JSON_SCHEMA = BRD_TOOL_JSON_SCHEMA;
+export const PRD_TOOL_JSON_SCHEMA = BRD_TOOL_JSON_SCHEMA;
 
 export const ACTION_ITEMS_TOOL_JSON_SCHEMA = {
   type: "object",

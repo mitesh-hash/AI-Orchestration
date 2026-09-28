@@ -6,6 +6,9 @@ import { revalidatePath } from "next/cache";
 import { createTranscript } from "@/core/db/transcriptRepository";
 import {
   createBrdDocument,
+  createFrdDocument,
+  createPrdDocument,
+  updateConfluencePageLink,
   documentApprovalRepo,
   getDocument,
 } from "@/core/db/documentRepository";
@@ -16,11 +19,16 @@ import {
   ticketApprovalRepo,
 } from "@/core/db/ticketRepository";
 import { createDevSpecNote } from "@/core/db/devSpecNoteRepository";
-import { createDiagram, diagramApprovalRepo } from "@/core/db/diagramRepository";
+import {
+  createDiagram,
+  diagramApprovalRepo,
+  listDiagramsForTranscript,
+} from "@/core/db/diagramRepository";
 import { createDesignSystemNote } from "@/core/db/designSystemNoteRepository";
 import {
   createWireframeSet,
   wireframeSetApprovalRepo,
+  listWireframeSetsForTranscript,
 } from "@/core/db/wireframeSetRepository";
 import {
   createComparisonDraft,
@@ -37,20 +45,29 @@ import {
   createPrototypeCrossCheck,
   prototypeCrossCheckApprovalRepo,
 } from "@/core/db/prototypeCrossCheckRepository";
-import { createDevSpec, devSpecApprovalRepo } from "@/core/db/devSpecRepository";
+import {
+  createDevSpec,
+  devSpecApprovalRepo,
+  listDevSpecsForTranscript,
+} from "@/core/db/devSpecRepository";
 import { generateBrd } from "@/core/documentation/generateBrd";
+import { generateFrd } from "@/core/documentation/generateFrd";
+import { generatePrd } from "@/core/documentation/generatePrd";
 import { extractActionItems } from "@/core/actions-tickets/extractActionItems";
 import { generateProductDiscoveryTickets } from "@/core/actions-tickets/generateProductDiscoveryTickets";
 import { generateDevelopmentTickets } from "@/core/actions-tickets/generateDevelopmentTickets";
 import { generateUserFlowDiagram } from "@/core/diagramming/generateUserFlowDiagram";
 import { generateWireframeOptions } from "@/core/diagramming/generateWireframeOptions";
+import { readDiagramContent } from "@/core/diagramming/diagramContent";
+import { readWireframeContent } from "@/core/diagramming/wireframeContent";
+import { readDevSpecContent } from "@/core/devspec/devSpecContent";
 import { generateComparison } from "@/core/comparison/generateComparison";
 import { generatePrototypeStructure } from "@/core/comparison/generatePrototypeStructure";
 import { generatePrototypeCrossCheck } from "@/core/comparison/generatePrototypeCrossCheck";
 import { readPrototypeContent } from "@/core/comparison/prototypeContent";
 import { generateDevSpec } from "@/core/devspec/generateDevSpec";
 import { approveDocument, rejectDocument } from "@/core/guardrails/approvalGate";
-import { readBrdContent } from "@/core/documentation/brdContent";
+import { readBrdContent, readFrdContent } from "@/core/documentation/brdContent";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Unknown error.";
@@ -571,5 +588,111 @@ export async function rejectDevSpecAction(formData: FormData): Promise<void> {
   const transcriptId = String(formData.get("transcriptId") ?? "");
 
   await rejectDocument(devSpecApprovalRepo, devSpecId, approverName);
+  revalidatePath(`/review/${transcriptId}`);
+}
+
+// FR-3: drafts a structured FRD from the BRD plus whichever design-stage
+// outputs (Diagram, WireframeSet) and developer spec exist for this
+// transcript so far -- gathered here rather than passed in individually,
+// since a BA just clicks one "Generate FRD" button on the review page.
+// Reuses approveDocumentAction/rejectDocumentAction for FR-18/19 (an FRD is
+// a RequirementDocument like any other) -- no new approval action needed.
+export async function generateFrdAction(formData: FormData): Promise<void> {
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+  const documentId = String(formData.get("documentId") ?? "");
+
+  const warnings: string[] = [];
+
+  try {
+    const [document, diagrams, wireframeSets, devSpecs] = await Promise.all([
+      getDocument(documentId),
+      listDiagramsForTranscript(transcriptId),
+      listWireframeSetsForTranscript(transcriptId),
+      listDevSpecsForTranscript(transcriptId),
+    ]);
+    const brdContent = document ? readBrdContent(document.content) : null;
+
+    if (!brdContent) {
+      warnings.push("FRD not generated: could not read the source BRD's content.");
+    } else {
+      const result = await generateFrd({
+        brd: brdContent,
+        diagram: diagrams[0] ? readDiagramContent(diagrams[0].content) : null,
+        wireframes: wireframeSets[0] ? readWireframeContent(wireframeSets[0].content) : null,
+        devSpec: devSpecs[0] ? readDevSpecContent(devSpecs[0].content) : null,
+      });
+      if (result.status === "insufficient_input") {
+        warnings.push(`FRD not generated: ${result.reason}`);
+      } else {
+        await createFrdDocument(transcriptId, result.draft);
+        if (result.draft.gaps.length > 0) {
+          const gapSummary = result.draft.gaps.map((g) => `${g.section}: ${g.reason}`).join(" | ");
+          warnings.push(`Some inputs weren't available yet: ${gapSummary}`);
+        }
+      }
+    }
+  } catch (err) {
+    warnings.push(`FRD generation failed: ${errorMessage(err)}`);
+  }
+
+  const query = warnings.length > 0 ? `?warning=${encodeURIComponent(warnings.join(" | "))}` : "";
+  redirect(`/review/${transcriptId}${query}`);
+}
+
+// FR-4: rewrites a *finalized* FRD as a business-facing PRD. The "finalized"
+// requirement (unlike FR-7/10/11's "an already-drafted BRD, any status") is
+// enforced here, at the action layer, since it's a check on DB state
+// (approval status) rather than content shape -- generatePrd() itself only
+// checks the content is non-empty. Reuses approveDocumentAction/
+// rejectDocumentAction for the PRD's own approval, same as the FRD.
+export async function generatePrdAction(formData: FormData): Promise<void> {
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+  const frdDocumentId = String(formData.get("frdDocumentId") ?? "");
+
+  const warnings: string[] = [];
+
+  try {
+    const frdDocument = await getDocument(frdDocumentId);
+    if (!frdDocument || frdDocument.status !== "APPROVED") {
+      warnings.push("PRD not generated: the FRD must be approved (finalized) first.");
+    } else {
+      const frdContent = readFrdContent(frdDocument.content);
+      if (!frdContent) {
+        warnings.push("PRD not generated: could not read the FRD's content.");
+      } else {
+        const result = await generatePrd(frdContent);
+        if (result.status === "insufficient_input") {
+          warnings.push(`PRD not generated: ${result.reason}`);
+        } else {
+          await createPrdDocument(transcriptId, result.draft);
+          if (result.draft.gaps.length > 0) {
+            const gapSummary = result.draft.gaps.map((g) => `${g.section}: ${g.reason}`).join(" | ");
+            warnings.push(`Carried forward from the FRD as still open: ${gapSummary}`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    warnings.push(`PRD generation failed: ${errorMessage(err)}`);
+  }
+
+  const query = warnings.length > 0 ? `?warning=${encodeURIComponent(warnings.join(" | "))}` : "";
+  redirect(`/review/${transcriptId}${query}`);
+}
+
+// FR-5a: purely saves a user-entered reference to which real Confluence
+// page an approved PRD corresponds to. No LLM call, no live Confluence API
+// call -- the rendered Markdown preview shown alongside this on the review
+// page is a pure, deterministic reformat of the already-approved PRD
+// content (core/documentation/renderConfluenceMarkdown.ts); copying it into
+// the real page is left as an explicit, manual, out-of-app action, same
+// principle as FR-9's Jira tickets.
+export async function updateConfluencePageLinkAction(formData: FormData): Promise<void> {
+  const transcriptId = String(formData.get("transcriptId") ?? "");
+  const prdDocumentId = String(formData.get("prdDocumentId") ?? "");
+  const pageTitle = String(formData.get("pageTitle") ?? "").trim() || undefined;
+  const pageUrl = String(formData.get("pageUrl") ?? "").trim() || undefined;
+
+  await updateConfluencePageLink(prdDocumentId, { pageTitle, pageUrl });
   revalidatePath(`/review/${transcriptId}`);
 }

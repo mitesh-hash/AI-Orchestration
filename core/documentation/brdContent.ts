@@ -19,3 +19,14 @@ export function readBrdContent(content: unknown): BrdContent | null {
   }
   return null;
 }
+
+// FR-3's FRD and FR-4's PRD are stored in the exact same {title, sections}
+// shape as a BRD (see the schema comment on RequirementDocument.content) --
+// aliased rather than duplicated so there's one reader function, with
+// names that stay clear at each call site about which document type is
+// actually being read.
+export type FrdContent = BrdContent;
+export const readFrdContent = readBrdContent;
+
+export type PrdContent = BrdContent;
+export const readPrdContent = readBrdContent;

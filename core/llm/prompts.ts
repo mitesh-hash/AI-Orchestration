@@ -367,3 +367,128 @@ ${formatPrototypeSections(prototypeSections)}
 
 Draft developer specs from this BRD and prototype using the submit_dev_spec tool.`;
 }
+
+// Structural (not imported) types here on purpose -- core/llm intentionally
+// has no dependency on core/diagramming or core/devspec, to avoid a reverse
+// import (they already depend on core/llm/schemas). Each of FR-3's
+// design-stage inputs is optional; a missing one renders as an explicit
+// "not supplied yet" note rather than an empty/misleading section.
+function formatDiagramForPrompt(
+  diagram: {
+    title: string;
+    nodes: { label: string; type: string }[];
+    edges: { from: string; to: string; label?: string }[];
+  } | null
+): string {
+  if (!diagram) return "(No User Flow diagram supplied yet.)";
+  const nodeLines = diagram.nodes.map((n) => `- [${n.type}] ${n.label}`).join("\n");
+  const edgeLines = diagram.edges
+    .map((e) => `- ${e.from} -> ${e.to}${e.label ? ` (${e.label})` : ""}`)
+    .join("\n");
+  return `Diagram title: ${diagram.title}\nSteps:\n${nodeLines}\nTransitions:\n${edgeLines}`;
+}
+
+function formatWireframesForPrompt(
+  wireframes: { options: { name: string; regions: { kind: string; label: string }[] }[] } | null
+): string {
+  if (!wireframes) return "(No wireframe options supplied yet.)";
+  return wireframes.options
+    .map((o) => `Option: ${o.name}\n` + o.regions.map((r) => `- [${r.kind}] ${r.label}`).join("\n"))
+    .join("\n\n");
+}
+
+function formatDevSpecForPrompt(
+  devSpec: { rules: { type: string; description: string; needsConfirmation: boolean }[] } | null
+): string {
+  if (!devSpec) return "(No developer spec supplied yet.)";
+  if (devSpec.rules.length === 0) return "(Developer spec supplied but has no rules.)";
+  return devSpec.rules
+    .map((r) => `- [${r.type}]${r.needsConfirmation ? " (NEEDS CONFIRMATION)" : ""} ${r.description}`)
+    .join("\n");
+}
+
+export const FRD_SYSTEM_PROMPT = `You draft a structured Functional Requirements Document (FRD) for an
+internal Product Team, from a BRD plus whichever design-stage outputs and
+developer specs have been supplied so far -- a User Flow diagram, wireframe
+options, and/or a developer spec of validations/business rules/messages
+(FR-3).
+
+Rules you must follow:
+- Every section's "text" must be grounded in one or more of the supplied
+  sources. Each section needs at least one "sourceRefs" entry quoting or
+  closely paraphrasing the specific source (BRD text, a diagram step, a
+  wireframe region, or a developer-spec rule) that supports it.
+- Structure the FRD around functional areas or flows, using the BRD's own
+  terminology.
+- If a design-stage output or the developer spec was not supplied at all
+  (marked "(not supplied yet)" below), do NOT invent what it would have
+  said -- add a "gaps" entry naming what's missing instead.
+- If a developer-spec rule is marked "NEEDS CONFIRMATION", do not present
+  it as settled in the FRD either -- omit it, or say explicitly in the
+  section text that it still needs confirmation.
+- Do not invent requirements that aren't grounded in the supplied sources.`;
+
+export function buildFrdUserPrompt(sources: {
+  brdTitle: string;
+  brdSections: { heading: string; text: string }[];
+  diagram: {
+    title: string;
+    nodes: { label: string; type: string }[];
+    edges: { from: string; to: string; label?: string }[];
+  } | null;
+  wireframes: { options: { name: string; regions: { kind: string; label: string }[] }[] } | null;
+  devSpec: { rules: { type: string; description: string; needsConfirmation: boolean }[] } | null;
+}): string {
+  return `BRD title: ${sources.brdTitle}
+
+BRD sections:
+"""
+${formatBrdSections(sources.brdSections)}
+"""
+
+User Flow diagram:
+"""
+${formatDiagramForPrompt(sources.diagram)}
+"""
+
+Wireframe options:
+"""
+${formatWireframesForPrompt(sources.wireframes)}
+"""
+
+Developer spec:
+"""
+${formatDevSpecForPrompt(sources.devSpec)}
+"""
+
+Draft a structured FRD from these sources using the submit_frd_draft tool.`;
+}
+
+export const PRD_SYSTEM_PROMPT = `You draft a final, business-facing Product Requirements Document (PRD) for
+an internal Product Team, from a finalized (approved) FRD (FR-4).
+
+Rules you must follow:
+- Write for a business/stakeholder audience: plain language, focused on
+  what the product does and why, not implementation detail.
+- Every section's "text" must be grounded in the FRD -- each section needs
+  at least one "sourceRefs" entry quoting or closely paraphrasing the FRD
+  text it summarizes or carries forward.
+- Do not introduce new requirements the FRD doesn't contain -- a PRD
+  restates and reframes the FRD for a business audience, it does not add
+  scope of its own.
+- If the FRD has its own flagged gaps that are business-relevant, carry
+  them forward as a PRD-level gap rather than silently dropping them.`;
+
+export function buildPrdUserPrompt(
+  frdTitle: string,
+  frdSections: { heading: string; text: string }[]
+): string {
+  return `FRD title: ${frdTitle}
+
+FRD sections:
+"""
+${formatBrdSections(frdSections)}
+"""
+
+Draft a business-facing PRD from this FRD using the submit_prd_draft tool.`;
+}
