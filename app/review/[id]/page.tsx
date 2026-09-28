@@ -256,7 +256,21 @@ export default async function ReviewPage({
       <div className="card">
         <h2>{transcript.title ?? "(untitled transcript)"}</h2>
         <p className="muted">
-          Meeting date: {transcript.meetingDate.toISOString().slice(0, 10)} -- source: {transcript.source}
+          Meeting date: {transcript.meetingDate.toISOString().slice(0, 10)} -- source:{" "}
+          {transcript.source === "google_doc" ? (
+            <>
+              Google Doc --{" "}
+              {transcript.sourceUrl ? (
+                <a href={transcript.sourceUrl} target="_blank" rel="noreferrer">
+                  {transcript.sourceTitle ?? transcript.sourceUrl}
+                </a>
+              ) : (
+                transcript.sourceTitle ?? "(untitled Google Doc)"
+              )}
+            </>
+          ) : (
+            transcript.source
+          )}
         </p>
       </div>
 

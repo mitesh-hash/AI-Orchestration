@@ -113,9 +113,30 @@ tickets. Built incrementally from the FRD, one vertical slice at a time.
     this app (Jira tickets included): **nothing here calls the Confluence
     API** -- the human copies the Markdown into the real page themselves.
 
+**Slice 8 (FR-1):**
+19. Import a transcript directly from a Google Doc link, as an alternative
+    to pasting transcript text (confirmed with the user). The home page's
+    existing transcript field auto-detects a Google Docs URL and fetches
+    that Doc's content via the Docs API instead of treating the URL itself
+    as literal transcript text; a plain pasted transcript still works
+    exactly as before with no configuration required.
+20. Authenticates as a single Google Cloud service account (confirmed with
+    the user, consistent with the existing "single internal user"
+    assumption) -- there's no per-user OAuth flow. Each transcript Doc has
+    to be shared with that service account's email as a Viewer before it
+    can be imported. A fetch failure (missing credentials, doc not shared,
+    doc deleted, doc genuinely empty) never creates a transcript with
+    nothing to review -- it sends the user back to the form with an
+    explicit reason instead.
+21. The review page's transcript card shows where a transcript actually
+    came from -- "source: Google Doc -- \<title\>" (linked back to the real
+    Doc) for an imported one, "source: paste" otherwise -- so provenance is
+    visible for a transcript either way, consistent with the Traceability
+    NFR.
+
 Nothing is written to Jira, Confluence, or Google Drive/Docs in any slice so
-far -- those integrations (as live API calls) and Google Drive/Docs
-transcript import are deferred to later slices.
+far -- those write-side integrations (as live API calls) remain deferred;
+Google Drive/Docs is now a read-only transcript *source* as of Slice 8.
 
 ## Stack
 
@@ -127,6 +148,8 @@ transcript import are deferred to later slices.
   `core/llm/schemas.ts` rather than freeform prose.
 - Mermaid (client-side only, dynamically imported) for rendering the User
   Flow diagram from a validated node/edge graph.
+- Google Docs API (`googleapis`, service-account JWT auth) for importing a
+  transcript from a Google Doc link (FR-1).
 - Vitest for unit tests of the guardrail and generation modules.
 
 ## Project layout
@@ -215,6 +238,17 @@ review page shows an explicit "BRD generation failed: ANTHROPIC_API_KEY is
 not set" warning instead of crashing or fabricating a draft -- this is the
 FR-5/Reliability guardrail working as intended, not a bug.
 
+`GOOGLE_SERVICE_ACCOUNT_KEY` is optional and only needed to import a
+transcript from a Google Doc link (FR-1) -- pasting transcript text works
+with no configuration at all. To set it up: create a Google Cloud project,
+enable the **Google Docs API**, create a service account, download its JSON
+key, and paste the whole file's contents as `.env`'s
+`GOOGLE_SERVICE_ACCOUNT_KEY` (single line). Then share each transcript Doc
+you want to import with that key's `client_email` as a Viewer. Without it
+configured, pasting a Google Doc link sends you back to the home page with
+an explicit "Could not import that Google Doc: GOOGLE_SERVICE_ACCOUNT_KEY is
+not set" error -- same guardrail principle as the Anthropic key above.
+
 ## Testing
 
 ```bash
@@ -238,9 +272,12 @@ Anthropic API key.
   pulls in React 19 and breaking API changes. Deferred rather than done as
   part of this slice, since this is an internal-only tool -- worth
   revisiting before wider rollout.
-- Google Drive/Docs transcript import is still out of scope (see the FRD's
-  remaining FRs). FRD/PRD generation (FR-3/4) and the Confluence reference
-  (FR-5a) are now built as of Slice 7.
+- Google Doc transcript import (FR-1, Slice 8) only supports a native
+  Google Doc's own URL -- not a Word/PDF file stored in Drive, a Google
+  Sheet, or a folder link. Auth is a single shared service account (no
+  per-user OAuth), so every transcript Doc has to be individually shared
+  with it first; there's no bulk/"whole folder" import. FRD/PRD generation
+  (FR-3/4) and the Confluence reference (FR-5a) were built in Slice 7.
 - Development tickets (FR-8) take pasted free-text spec/design notes rather
   than reading FR-11's wireframes or FR-16's generated dev specs, since
   neither existed at the time FR-8 was built. Both now exist; wiring

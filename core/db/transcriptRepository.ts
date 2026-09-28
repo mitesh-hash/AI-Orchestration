@@ -4,7 +4,9 @@ export interface CreateTranscriptInput {
   rawText: string;
   title?: string;
   meetingDate: Date;
-  source: "paste" | "upload";
+  source: "paste" | "upload" | "google_doc";
+  sourceUrl?: string;
+  sourceTitle?: string;
 }
 
 export async function createTranscript(input: CreateTranscriptInput) {

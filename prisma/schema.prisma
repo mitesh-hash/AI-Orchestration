@@ -29,11 +29,18 @@ enum DocumentStatus {
 
 model Transcript {
   id        String   @id @default(cuid())
-  source    String // 'paste' | 'upload' | 'google_doc' (google_doc deferred)
+  source    String // 'paste' | 'upload' | 'google_doc'
   title     String?
   meetingDate DateTime
   rawText   String
   createdAt DateTime @default(now())
+
+  // FR-1: only set when source is 'google_doc' -- the Doc's own title and
+  // URL, kept for provenance display on the review page (not used for any
+  // re-fetch; rawText is the durable copy, same principle as every other
+  // pasted-then-persisted input in this app).
+  sourceUrl   String?
+  sourceTitle String?
 
   documents            RequirementDocument[]
   actionItems          ActionItem[]
