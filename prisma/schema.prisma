@@ -48,6 +48,10 @@ model RequirementDocument {
   type       DocumentType
   version    Int            @default(1)
   // Structured content: { title, sections: [{ heading, text, sourceRefs }] }
+  // -- the same shape for BRD, FRD (FR-3), and PRD (FR-4), since all three
+  // are structurally "cited sections + gaps", just drafted from different
+  // sources (a transcript, vs. a BRD + design-stage outputs + dev spec, vs.
+  // a finalized FRD).
   content    Json
   // Sections/points the source material didn't cover, per FR-5.
   gaps       Json
@@ -55,6 +59,15 @@ model RequirementDocument {
   approvedBy String?
   approvedAt DateTime?
   createdAt  DateTime       @default(now())
+
+  // FR-5a: only meaningful for an approved PRD -- a user-entered reference
+  // to which real Confluence page this corresponds to, so the Confluence
+  // Update preview doesn't need to be re-entered on every visit. Never used
+  // to make a live API call; nothing in this app writes to Confluence
+  // automatically (same guardrail as Jira in FR-9 -- draft/preview only,
+  // the human does the actual paste).
+  confluencePageTitle String?
+  confluencePageUrl   String?
 
   transcripts          Transcript[]
   tickets              Ticket[]

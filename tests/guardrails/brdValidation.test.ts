@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateBrdDraft } from "@/core/guardrails/brdValidation";
+import { validateBrdDraft, validateFrdDraft, validatePrdDraft } from "@/core/guardrails/brdValidation";
 import { GuardrailViolationError } from "@/core/guardrails/errors";
 
 const validDraft = {
@@ -44,5 +44,21 @@ describe("validateBrdDraft (FR-2 / FR-5 contract enforcement)", () => {
     const result = validateBrdDraft(draft);
     expect(result.gaps).toHaveLength(1);
     expect(result.gaps[0].section).toBe("Success Metrics");
+  });
+});
+
+describe("validateFrdDraft / validatePrdDraft (FR-3 / FR-4 -- same contract, distinct labels)", () => {
+  it("validateFrdDraft accepts a well-formed draft and labels its errors as FRD", () => {
+    expect(() => validateFrdDraft(validDraft)).not.toThrow();
+    expect(() => validateFrdDraft({ nonsense: true })).toThrow(/FRD/);
+  });
+
+  it("validatePrdDraft accepts a well-formed draft and labels its errors as PRD", () => {
+    expect(() => validatePrdDraft(validDraft)).not.toThrow();
+    expect(() => validatePrdDraft({ nonsense: true })).toThrow(/PRD/);
+  });
+
+  it("validateBrdDraft's own error label is unaffected by the shared helper (no regression)", () => {
+    expect(() => validateBrdDraft({ nonsense: true })).toThrow(/BRD/);
   });
 });

@@ -12,9 +12,13 @@ import { listPrototypeExtractionsForTranscript } from "@/core/db/prototypeExtrac
 import { listPrototypeCrossChecksForTranscript } from "@/core/db/prototypeCrossCheckRepository";
 import { listDevSpecsForTranscript } from "@/core/db/devSpecRepository";
 import { UNSPECIFIED_OWNER } from "@/core/guardrails/ownerNormalization";
-import { readBrdContent } from "@/core/documentation/brdContent";
+import { readBrdContent, readFrdContent, readPrdContent } from "@/core/documentation/brdContent";
 import { readPrototypeContent } from "@/core/comparison/prototypeContent";
 import { renderMermaidFlowchart } from "@/core/diagramming/renderMermaid";
+import { readDiagramContent } from "@/core/diagramming/diagramContent";
+import { readWireframeContent } from "@/core/diagramming/wireframeContent";
+import { readDevSpecContent } from "@/core/devspec/devSpecContent";
+import { renderPrdAsConfluenceMarkdown } from "@/core/documentation/renderConfluenceMarkdown";
 import { MermaidDiagram } from "@/app/components/MermaidDiagram";
 import {
   approveDocumentAction,
@@ -41,14 +45,14 @@ import {
   generateDevSpecAction,
   approveDevSpecAction,
   rejectDevSpecAction,
+  generateFrdAction,
+  generatePrdAction,
+  updateConfluencePageLinkAction,
 } from "@/app/actions";
 import {
   PRODUCT_DISCOVERY_MILESTONES,
   type Gap,
   type SourceRef,
-  type DiagramNode,
-  type DiagramEdge,
-  type WireframeOption,
   type ComparisonRow,
   type PrototypeMismatch,
   type DevSpecRule,
@@ -63,30 +67,6 @@ function readGaps(gaps: unknown): Gap[] {
 
 function readSourceRefs(sourceRefs: unknown): SourceRef[] {
   return Array.isArray(sourceRefs) ? (sourceRefs as SourceRef[]) : [];
-}
-
-interface DiagramContent {
-  title: string;
-  nodes: DiagramNode[];
-  edges: DiagramEdge[];
-}
-
-function readDiagramContent(content: unknown): DiagramContent | null {
-  if (content && typeof content === "object" && "nodes" in content && "edges" in content) {
-    return content as DiagramContent;
-  }
-  return null;
-}
-
-interface WireframeSetContent {
-  options: WireframeOption[];
-}
-
-function readWireframeContent(content: unknown): WireframeSetContent | null {
-  if (content && typeof content === "object" && "options" in content) {
-    return content as WireframeSetContent;
-  }
-  return null;
 }
 
 interface ComparisonContent {
@@ -108,18 +88,6 @@ interface CrossCheckContent {
 function readCrossCheckContent(content: unknown): CrossCheckContent | null {
   if (content && typeof content === "object" && "mismatches" in content) {
     return content as CrossCheckContent;
-  }
-  return null;
-}
-
-interface DevSpecContent {
-  rules: DevSpecRule[];
-  gaps: Gap[];
-}
-
-function readDevSpecContent(content: unknown): DevSpecContent | null {
-  if (content && typeof content === "object" && "rules" in content) {
-    return content as DevSpecContent;
   }
   return null;
 }
@@ -272,6 +240,12 @@ export default async function ReviewPage({
   const diagram = diagrams[0] ?? null;
   const diagramContent = diagram ? readDiagramContent(diagram.content) : null;
   const diagramGaps = diagram ? readGaps(diagram.gaps) : [];
+  const frdDocument = documents.find((d) => d.type === "FRD") ?? null;
+  const frdContent = frdDocument ? readFrdContent(frdDocument.content) : null;
+  const frdGaps = frdDocument ? readGaps(frdDocument.gaps) : [];
+  const prdDocument = documents.find((d) => d.type === "PRD") ?? null;
+  const prdContent = prdDocument ? readPrdContent(prdDocument.content) : null;
+  const prdGaps = prdDocument ? readGaps(prdDocument.gaps) : [];
 
   return (
     <>
@@ -971,6 +945,215 @@ export default async function ReviewPage({
           </div>
         );
       })}
+
+      <div className="card">
+        <h2>
+          FRD (FR-3){" "}
+          {frdDocument && (
+            <span className={`badge badge-${frdDocument.status.toLowerCase()}`}>
+              {frdDocument.status.replace("_", " ")}
+            </span>
+          )}
+        </h2>
+        <p className="muted">
+          Drafted from the BRD above plus whichever of the User Flow diagram,
+          wireframe options, and developer spec have been generated so far --
+          any of those that&apos;s missing is flagged as a gap below rather
+          than silently left out.
+        </p>
+
+        {!frdDocument && brdContent && (
+          <form
+            className="actions-row"
+            action={async () => {
+              "use server";
+              const formData = new FormData();
+              formData.set("documentId", brdDocument!.id);
+              formData.set("transcriptId", transcript.id);
+              await generateFrdAction(formData);
+            }}
+          >
+            <button type="submit">Generate FRD</button>
+          </form>
+        )}
+        {!frdDocument && !brdContent && (
+          <p className="muted">Generate a BRD first -- the FRD is drafted from it.</p>
+        )}
+
+        {frdContent && (
+          <>
+            <p>
+              <strong>{frdContent.title}</strong>
+            </p>
+            {frdContent.sections.map((section, i) => (
+              <div className="section-block" key={i}>
+                <h3>{section.heading}</h3>
+                <p>{section.text}</p>
+                <div className="source-refs">
+                  Source references:
+                  <ul>
+                    {section.sourceRefs.map((ref, j) => (
+                      <li key={j}>&ldquo;{ref.quoteOrParaphrase}&rdquo;</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+
+            {frdGaps.length > 0 && (
+              <div className="gaps-block">
+                <strong>Not covered yet (FR-5):</strong>
+                <ul>
+                  {frdGaps.map((gap, i) => (
+                    <li key={i}>
+                      <strong>{gap.section}:</strong> {gap.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+
+        {frdDocument && (
+          <ApprovalControls
+            status={frdDocument.status}
+            idFieldName="documentId"
+            id={frdDocument.id}
+            transcriptId={transcript.id}
+            approvedBy={frdDocument.approvedBy}
+            approvedAt={frdDocument.approvedAt}
+            approveAction={approveDocumentAction}
+            rejectAction={rejectDocumentAction}
+          />
+        )}
+      </div>
+
+      <div className="card">
+        <h2>
+          PRD (FR-4){" "}
+          {prdDocument && (
+            <span className={`badge badge-${prdDocument.status.toLowerCase()}`}>
+              {prdDocument.status.replace("_", " ")}
+            </span>
+          )}
+        </h2>
+        <p className="muted">
+          A business-facing rewrite of the approved FRD above -- no new scope
+          is introduced, only a change in audience/framing.
+        </p>
+
+        {!prdDocument && frdDocument?.status === "APPROVED" && (
+          <form
+            className="actions-row"
+            action={async () => {
+              "use server";
+              const formData = new FormData();
+              formData.set("frdDocumentId", frdDocument!.id);
+              formData.set("transcriptId", transcript.id);
+              await generatePrdAction(formData);
+            }}
+          >
+            <button type="submit">Generate PRD</button>
+          </form>
+        )}
+        {!prdDocument && frdDocument && frdDocument.status !== "APPROVED" && (
+          <p className="muted">
+            The FRD above must be approved (finalized) before a PRD can be
+            drafted from it.
+          </p>
+        )}
+        {!prdDocument && !frdDocument && (
+          <p className="muted">Generate and approve an FRD first -- the PRD is drafted from it.</p>
+        )}
+
+        {prdContent && (
+          <>
+            <p>
+              <strong>{prdContent.title}</strong>
+            </p>
+            {prdContent.sections.map((section, i) => (
+              <div className="section-block" key={i}>
+                <h3>{section.heading}</h3>
+                <p>{section.text}</p>
+                <div className="source-refs">
+                  Source references:
+                  <ul>
+                    {section.sourceRefs.map((ref, j) => (
+                      <li key={j}>&ldquo;{ref.quoteOrParaphrase}&rdquo;</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+
+            {prdGaps.length > 0 && (
+              <div className="gaps-block">
+                <strong>Carried forward as still open (FR-5):</strong>
+                <ul>
+                  {prdGaps.map((gap, i) => (
+                    <li key={i}>
+                      <strong>{gap.section}:</strong> {gap.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+
+        {prdDocument && (
+          <ApprovalControls
+            status={prdDocument.status}
+            idFieldName="documentId"
+            id={prdDocument.id}
+            transcriptId={transcript.id}
+            approvedBy={prdDocument.approvedBy}
+            approvedAt={prdDocument.approvedAt}
+            approveAction={approveDocumentAction}
+            rejectAction={rejectDocumentAction}
+          />
+        )}
+      </div>
+
+      {prdDocument?.status === "APPROVED" && prdContent && (
+        <div className="card">
+          <h2>Confluence update (FR-5a)</h2>
+          <div className="warning-banner">
+            Nothing here is sent to Confluence automatically -- this app
+            never calls the Confluence API. Copy the Markdown below into the
+            real Confluence page yourself, then optionally record that
+            page&apos;s title/URL here for reference.
+          </div>
+
+          <form action={updateConfluencePageLinkAction}>
+            <input type="hidden" name="transcriptId" value={transcript.id} />
+            <input type="hidden" name="prdDocumentId" value={prdDocument.id} />
+            <label htmlFor="pageTitle">Confluence page title (optional)</label>
+            <input
+              type="text"
+              id="pageTitle"
+              name="pageTitle"
+              defaultValue={prdDocument.confluencePageTitle ?? ""}
+              placeholder="e.g. Checkout Revamp PRD"
+            />
+            <label htmlFor="pageUrl">Confluence page URL (optional)</label>
+            <input
+              type="text"
+              id="pageUrl"
+              name="pageUrl"
+              defaultValue={prdDocument.confluencePageUrl ?? ""}
+              placeholder="https://your-domain.atlassian.net/wiki/..."
+            />
+            <div className="actions-row">
+              <button type="submit">Save page reference</button>
+            </div>
+          </form>
+
+          <h3>Markdown preview</h3>
+          <pre className="confluence-preview">{renderPrdAsConfluenceMarkdown(prdContent)}</pre>
+        </div>
+      )}
     </>
   );
 }
