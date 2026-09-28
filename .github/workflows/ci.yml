@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    env:
+      # Neither `npm test` nor `npm run build` ever connects to a real
+      # database (all generation-module tests mock the LLM call directly;
+      # the app's pages are force-dynamic, so no page does a DB read at
+      # build time) -- Prisma still needs a syntactically valid
+      # DATABASE_URL to generate its client and to construct PrismaClient
+      # at module load, so this is a placeholder, not a real service.
+      DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci_placeholder"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      - run: npm test
+
+      - run: npm run build
