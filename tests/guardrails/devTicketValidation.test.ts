@@ -7,6 +7,9 @@ const validDraft = {
     {
       title: "Add shipping cost validation on the cart API",
       description: "Reject cart updates missing a shipping estimate before checkout.",
+      specDefinition: "CLEAR",
+      complexity: "EASY",
+      size: "SMALL",
       sourceRefs: [{ quoteOrParaphrase: "shipping estimate must be present before checkout" }],
     },
   ],
@@ -29,6 +32,14 @@ describe("validateDevTicketsDraft (FR-8 contract enforcement)", () => {
   it("has no milestone field (unlike Product Discovery tickets)", () => {
     const result = validateDevTicketsDraft(validDraft);
     expect(result.tickets[0]).not.toHaveProperty("milestone");
+  });
+
+  it("rejects a ticket with a story-point input outside its fixed enum", () => {
+    const draft = {
+      ...validDraft,
+      tickets: [{ ...validDraft.tickets[0], complexity: "IMPOSSIBLE" }],
+    };
+    expect(() => validateDevTicketsDraft(draft)).toThrow(GuardrailViolationError);
   });
 
   it("accepts an empty tickets array alongside gaps (nothing groundable)", () => {

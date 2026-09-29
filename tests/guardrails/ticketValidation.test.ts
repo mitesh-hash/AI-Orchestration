@@ -8,6 +8,9 @@ const validDraft = {
       milestone: "User Journey",
       title: "Surface shipping cost on the cart page",
       description: "Add an estimated shipping cost line to the cart page.",
+      specDefinition: "CLEAR",
+      complexity: "EASY",
+      size: "SMALL",
       sourceRefs: [{ quoteOrParaphrase: "show estimated shipping cost on the cart page" }],
     },
   ],
@@ -31,6 +34,14 @@ describe("validateTicketsDraft (FR-7 contract enforcement)", () => {
     const draft = {
       ...validDraft,
       tickets: [{ ...validDraft.tickets[0], milestone: "Marketing" }],
+    };
+    expect(() => validateTicketsDraft(draft)).toThrow(GuardrailViolationError);
+  });
+
+  it("rejects a ticket with a story-point input outside its fixed enum", () => {
+    const draft = {
+      ...validDraft,
+      tickets: [{ ...validDraft.tickets[0], specDefinition: "SOMEWHAT_CLEAR" }],
     };
     expect(() => validateTicketsDraft(draft)).toThrow(GuardrailViolationError);
   });

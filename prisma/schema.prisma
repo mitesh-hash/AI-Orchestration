@@ -97,6 +97,16 @@ model Ticket {
   // text for DEVELOPMENT (FR-8). Same traceability principle as FR-2, one
   // level up the chain either way.
   sourceRefs  Json
+  // Story-point estimation: the AI supplies only these three categorical
+  // inputs (never the point number itself); getStoryPoints() in
+  // core/actions-tickets/storyPoints.ts looks up storyPoints from a fixed,
+  // deterministic matrix, so the same three inputs always produce the same
+  // number regardless of model variance. Left nullable since tickets
+  // created before this field existed have none.
+  specDefinition String? // "CLEAR" | "BLUR" | "BLIND"
+  complexity     String? // "EASY" | "MEDIUM" | "DIFFICULT"
+  size           String? // "TINY" | "SMALL" | "MEDIUM" | "LARGE"
+  storyPoints    Int?
   status      DocumentStatus @default(DRAFT)
   approvedBy  String?
   approvedAt  DateTime?

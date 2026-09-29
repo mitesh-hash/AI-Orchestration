@@ -175,6 +175,12 @@ function TicketCard({ ticket, transcriptId, sourceLabel }: {
         </span>
       </p>
       <p>{ticket.description}</p>
+      {ticket.storyPoints != null && (
+        <p className="muted">
+          Story points: <strong>{ticket.storyPoints}</strong> (spec definition:{" "}
+          {ticket.specDefinition}, complexity: {ticket.complexity}, size: {ticket.size})
+        </p>
+      )}
       <div className="source-refs">
         {sourceLabel}:
         <ul>

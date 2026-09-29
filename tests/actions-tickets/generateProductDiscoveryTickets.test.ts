@@ -6,6 +6,7 @@ vi.mock("@/core/llm/generateStructured", () => ({
 
 import { callStructuredTool } from "@/core/llm/generateStructured";
 import { generateProductDiscoveryTickets } from "@/core/actions-tickets/generateProductDiscoveryTickets";
+import { getStoryPoints } from "@/core/actions-tickets/storyPoints";
 import { GuardrailViolationError } from "@/core/guardrails/errors";
 
 const mockedCall = vi.mocked(callStructuredTool);
@@ -39,6 +40,9 @@ describe("generateProductDiscoveryTickets (FR-7)", () => {
           milestone: "User Journey",
           title: "Surface shipping cost on the cart page",
           description: "Add an estimated shipping cost line to the cart page.",
+          specDefinition: "CLEAR",
+          complexity: "EASY",
+          size: "SMALL",
           sourceRefs: [{ quoteOrParaphrase: "shipping cost is hidden until the final step" }],
         },
       ],
@@ -50,6 +54,7 @@ describe("generateProductDiscoveryTickets (FR-7)", () => {
     if (result.status === "generated") {
       expect(result.tickets).toHaveLength(1);
       expect(result.tickets[0].milestone).toBe("User Journey");
+      expect(result.tickets[0].storyPoints).toBe(getStoryPoints("CLEAR", "EASY", "SMALL"));
       expect(result.gaps).toHaveLength(1);
     }
   });
@@ -61,6 +66,9 @@ describe("generateProductDiscoveryTickets (FR-7)", () => {
           milestone: "Design",
           title: "Some invented ticket",
           description: "Not actually grounded in the BRD.",
+          specDefinition: "CLEAR",
+          complexity: "EASY",
+          size: "SMALL",
           sourceRefs: [],
         },
       ],
