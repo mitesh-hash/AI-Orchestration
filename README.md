@@ -113,6 +113,20 @@ tickets. Built incrementally from the FRD, one vertical slice at a time.
     this app (Jira tickets included): **nothing here calls the Confluence
     API** -- the human copies the Markdown into the real page themselves.
 
+**Slice 9 (story-point estimation, not tied to a specific FRD requirement):**
+19. Every Product Discovery and Development ticket now carries a story-point
+    estimate. The model never supplies the point number itself -- it only
+    judges three categorical inputs per ticket (`specDefinition`: CLEAR /
+    BLUR / BLIND; `complexity`: EASY / MEDIUM / DIFFICULT; `size`: TINY /
+    SMALL / MEDIUM / LARGE), each a fixed, guardrail-enforced enum. A pure,
+    deterministic lookup (`getStoryPoints()` in
+    `core/actions-tickets/storyPoints.ts`) turns those three inputs into a
+    point value on a Fibonacci-like scale, so the same three inputs always
+    produce the same number regardless of model variance, and the number is
+    always auditable back to the matrix rather than to model whim. The
+    review page shows the point total alongside the three inputs that
+    produced it.
+
 Nothing is written to Jira, Confluence, or Google Drive/Docs in any slice so
 far -- those integrations (as live API calls) and Google Drive/Docs
 transcript import are deferred to later slices.

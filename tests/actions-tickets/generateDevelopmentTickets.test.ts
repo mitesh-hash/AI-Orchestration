@@ -6,6 +6,7 @@ vi.mock("@/core/llm/generateStructured", () => ({
 
 import { callStructuredTool } from "@/core/llm/generateStructured";
 import { generateDevelopmentTickets } from "@/core/actions-tickets/generateDevelopmentTickets";
+import { getStoryPoints } from "@/core/actions-tickets/storyPoints";
 import { GuardrailViolationError } from "@/core/guardrails/errors";
 
 const mockedCall = vi.mocked(callStructuredTool);
@@ -30,6 +31,9 @@ describe("generateDevelopmentTickets (FR-8)", () => {
         {
           title: "Add shipping estimate validation to cart API",
           description: "Reject cart updates missing a shipping estimate, returning 'Shipping estimate required.'",
+          specDefinition: "CLEAR",
+          complexity: "EASY",
+          size: "SMALL",
           sourceRefs: [{ quoteOrParaphrase: "must reject updates missing a shipping estimate" }],
         },
       ],
@@ -41,6 +45,7 @@ describe("generateDevelopmentTickets (FR-8)", () => {
     if (result.status === "generated") {
       expect(result.tickets).toHaveLength(1);
       expect(result.tickets[0].title).toMatch(/shipping estimate/i);
+      expect(result.tickets[0].storyPoints).toBe(getStoryPoints("CLEAR", "EASY", "SMALL"));
       expect(result.gaps).toHaveLength(1);
     }
   });
@@ -51,6 +56,9 @@ describe("generateDevelopmentTickets (FR-8)", () => {
         {
           title: "Some invented validation",
           description: "Not actually grounded in the spec notes.",
+          specDefinition: "CLEAR",
+          complexity: "EASY",
+          size: "SMALL",
           sourceRefs: [],
         },
       ],

@@ -68,10 +68,26 @@ export type ActionItemsDraft = z.infer<typeof ActionItemsDraftSchema>;
 // up as a gap instead of a vague, invented ticket.
 export const PRODUCT_DISCOVERY_MILESTONES = ["User Journey", "Design", "FRD"] as const;
 
+// Story-point estimation inputs: the model only ever supplies these three
+// categorical judgments, never a point number itself. getStoryPoints() in
+// core/actions-tickets/storyPoints.ts is the single, deterministic place a
+// (specDefinition, complexity, size) triple becomes a number -- so the same
+// three inputs always produce the same point value regardless of model
+// variance, and the number stays auditable back to the matrix rather than
+// to model whim. Unlike ReqPilot AI's normalizeEnum() fallback, an
+// out-of-enum value here is a guardrail violation, not a silent default --
+// consistent with every other enum in this file.
+export const SPEC_DEFINITIONS = ["CLEAR", "BLUR", "BLIND"] as const;
+export const COMPLEXITIES = ["EASY", "MEDIUM", "DIFFICULT"] as const;
+export const SIZES = ["TINY", "SMALL", "MEDIUM", "LARGE"] as const;
+
 export const TicketDraftSchema = z.object({
   milestone: z.enum(PRODUCT_DISCOVERY_MILESTONES),
   title: z.string().min(1),
   description: z.string().min(1),
+  specDefinition: z.enum(SPEC_DEFINITIONS),
+  complexity: z.enum(COMPLEXITIES),
+  size: z.enum(SIZES),
   // Cites the BRD's own text, not the original transcript -- FR-7 derives
   // tickets from the BRD, one link further down the traceability chain.
   sourceRefs: z
@@ -92,6 +108,9 @@ export type ProductDiscoveryTicketsDraft = z.infer<typeof ProductDiscoveryTicket
 export const DevTicketDraftSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
+  specDefinition: z.enum(SPEC_DEFINITIONS),
+  complexity: z.enum(COMPLEXITIES),
+  size: z.enum(SIZES),
   sourceRefs: z
     .array(SourceRefSchema)
     .min(1, "every dev ticket must cite the design/spec notes it came from"),
@@ -376,6 +395,9 @@ export const PRODUCT_DISCOVERY_TICKETS_TOOL_JSON_SCHEMA = {
           milestone: { type: "string", enum: [...PRODUCT_DISCOVERY_MILESTONES] },
           title: { type: "string" },
           description: { type: "string" },
+          specDefinition: { type: "string", enum: [...SPEC_DEFINITIONS] },
+          complexity: { type: "string", enum: [...COMPLEXITIES] },
+          size: { type: "string", enum: [...SIZES] },
           sourceRefs: {
             type: "array",
             minItems: 1,
@@ -386,7 +408,15 @@ export const PRODUCT_DISCOVERY_TICKETS_TOOL_JSON_SCHEMA = {
             },
           },
         },
-        required: ["milestone", "title", "description", "sourceRefs"],
+        required: [
+          "milestone",
+          "title",
+          "description",
+          "specDefinition",
+          "complexity",
+          "size",
+          "sourceRefs",
+        ],
       },
     },
     gaps: {
@@ -518,6 +548,9 @@ export const DEVELOPMENT_TICKETS_TOOL_JSON_SCHEMA = {
         properties: {
           title: { type: "string" },
           description: { type: "string" },
+          specDefinition: { type: "string", enum: [...SPEC_DEFINITIONS] },
+          complexity: { type: "string", enum: [...COMPLEXITIES] },
+          size: { type: "string", enum: [...SIZES] },
           sourceRefs: {
             type: "array",
             minItems: 1,
@@ -528,7 +561,14 @@ export const DEVELOPMENT_TICKETS_TOOL_JSON_SCHEMA = {
             },
           },
         },
-        required: ["title", "description", "sourceRefs"],
+        required: [
+          "title",
+          "description",
+          "specDefinition",
+          "complexity",
+          "size",
+          "sourceRefs",
+        ],
       },
     },
     gaps: {

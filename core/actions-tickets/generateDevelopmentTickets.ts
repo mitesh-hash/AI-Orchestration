@@ -6,10 +6,16 @@ import {
   DEVELOPMENT_TICKETS_SYSTEM_PROMPT,
   buildDevelopmentTicketsUserPrompt,
 } from "../llm/prompts";
+import { getStoryPoints } from "./storyPoints";
+
+// storyPoints is never part of the model-facing schema -- it's always
+// computed from the ticket's own specDefinition/complexity/size by
+// getStoryPoints() below, so it's added here rather than in DevTicketDraft.
+export type DevTicketDraftWithPoints = DevTicketDraft & { storyPoints: number };
 
 export type GenerateDevTicketsResult =
   | { status: "insufficient_input"; reason: string }
-  | { status: "generated"; tickets: DevTicketDraft[]; gaps: Gap[] };
+  | { status: "generated"; tickets: DevTicketDraftWithPoints[]; gaps: Gap[] };
 
 // FR-8: drafts development/technical tickets from pasted "signed-off design
 // and developer specs" text (there's no FR-11/FR-16 output to read yet, so
@@ -34,5 +40,9 @@ export async function generateDevelopmentTickets(
   });
 
   const draft = validateDevTicketsDraft(rawOutput);
-  return { status: "generated", tickets: draft.tickets, gaps: draft.gaps };
+  const tickets = draft.tickets.map((ticket) => ({
+    ...ticket,
+    storyPoints: getStoryPoints(ticket.specDefinition, ticket.complexity, ticket.size),
+  }));
+  return { status: "generated", tickets, gaps: draft.gaps };
 }

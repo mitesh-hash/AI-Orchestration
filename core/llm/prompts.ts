@@ -64,7 +64,16 @@ Rules you must follow:
 - Ticket "description" should be concrete enough for a BA to paste into
   Jira as-is: what needs to happen and why, referencing the BRD's own
   terminology.
-- Do not draft more than one ticket per milestone.`;
+- Do not draft more than one ticket per milestone.
+- For story-point estimation, judge three things about the ticket -- never
+  the point number itself, which is computed separately from your answers:
+  - "specDefinition": "CLEAR" if the BRD spells out exactly what's needed,
+    "BLUR" if it's roughly there but leaves real ambiguity, "BLIND" if the
+    BRD barely touches this and most of it is unstated.
+  - "complexity": "EASY" / "MEDIUM" / "DIFFICULT", judged by how much
+    coordination, unfamiliar work, or risk this milestone's work involves.
+  - "size": "TINY" / "SMALL" / "MEDIUM" / "LARGE", judged by the sheer
+    amount of work described, independent of how well-defined it is.`;
 
 export const DEVELOPMENT_TICKETS_SYSTEM_PROMPT = `You draft development/technical Jira tickets for an internal Product Team,
 from pasted "signed-off design" and "developer specs" notes (validations,
@@ -83,7 +92,16 @@ Rules you must follow:
   "gaps" naming what's missing instead.
 - Do not draft Product Discovery-style tickets (user journey, wireframes,
   FRD milestones) here -- those are a separate ticket type generated
-  elsewhere. Stay focused on implementation-level work.`;
+  elsewhere. Stay focused on implementation-level work.
+- For story-point estimation, judge three things about the ticket -- never
+  the point number itself, which is computed separately from your answers:
+  - "specDefinition": "CLEAR" if the notes spell out exactly what's needed,
+    "BLUR" if it's roughly there but leaves real ambiguity, "BLIND" if the
+    notes barely touch this and most of it is unstated.
+  - "complexity": "EASY" / "MEDIUM" / "DIFFICULT", judged by how much
+    coordination, unfamiliar work, or risk this ticket's work involves.
+  - "size": "TINY" / "SMALL" / "MEDIUM" / "LARGE", judged by the sheer
+    amount of work described, independent of how well-defined it is.`;
 
 export function buildDevelopmentTicketsUserPrompt(specText: string): string {
   return `Developer specs / signed-off design notes:

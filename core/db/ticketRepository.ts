@@ -1,14 +1,15 @@
 import { prisma } from "./prisma";
 import type { ApprovalRepo } from "../guardrails/approvalGate";
 import type { DocumentStatus } from "../guardrails/types";
-import type { TicketDraft, DevTicketDraft } from "../llm/schemas";
+import type { TicketDraftWithPoints } from "../actions-tickets/generateProductDiscoveryTickets";
+import type { DevTicketDraftWithPoints } from "../actions-tickets/generateDevelopmentTickets";
 
 // FR-7: tickets sourced from a BRD (RequirementDocument). sourceDevSpecId is
 // deliberately left unset -- see the schema comment on Ticket for why the
 // two source fields never both get populated.
 export async function createProductDiscoveryTickets(
   sourceDocumentId: string,
-  tickets: TicketDraft[]
+  tickets: TicketDraftWithPoints[]
 ) {
   return prisma.$transaction(
     tickets.map((ticket) =>
@@ -20,6 +21,10 @@ export async function createProductDiscoveryTickets(
           title: ticket.title,
           description: ticket.description,
           sourceRefs: ticket.sourceRefs,
+          specDefinition: ticket.specDefinition,
+          complexity: ticket.complexity,
+          size: ticket.size,
+          storyPoints: ticket.storyPoints,
           status: "PENDING_APPROVAL",
         },
       })
@@ -31,7 +36,7 @@ export async function createProductDiscoveryTickets(
 // unset, mirroring createProductDiscoveryTickets.
 export async function createDevelopmentTickets(
   sourceDevSpecId: string,
-  tickets: DevTicketDraft[]
+  tickets: DevTicketDraftWithPoints[]
 ) {
   return prisma.$transaction(
     tickets.map((ticket) =>
@@ -42,6 +47,10 @@ export async function createDevelopmentTickets(
           title: ticket.title,
           description: ticket.description,
           sourceRefs: ticket.sourceRefs,
+          specDefinition: ticket.specDefinition,
+          complexity: ticket.complexity,
+          size: ticket.size,
+          storyPoints: ticket.storyPoints,
           status: "PENDING_APPROVAL",
         },
       })

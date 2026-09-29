@@ -10,15 +10,21 @@ import {
   PRODUCT_DISCOVERY_TICKETS_SYSTEM_PROMPT,
   buildProductDiscoveryTicketsUserPrompt,
 } from "../llm/prompts";
+import { getStoryPoints } from "./storyPoints";
 
 export interface BrdContentForTicketing {
   title: string;
   sections: { heading: string; text: string }[];
 }
 
+// storyPoints is never part of the model-facing schema -- it's always
+// computed from the ticket's own specDefinition/complexity/size by
+// getStoryPoints() below, so it's added here rather than in TicketDraft.
+export type TicketDraftWithPoints = TicketDraft & { storyPoints: number };
+
 export type GenerateTicketsResult =
   | { status: "insufficient_input"; reason: string }
-  | { status: "generated"; tickets: TicketDraft[]; gaps: Gap[] };
+  | { status: "generated"; tickets: TicketDraftWithPoints[]; gaps: Gap[] };
 
 // FR-7: drafts Product Discovery tickets (User Journey / Design / FRD
 // milestones) from an already-generated BRD, never from the raw transcript
@@ -42,5 +48,9 @@ export async function generateProductDiscoveryTickets(
   });
 
   const draft = validateTicketsDraft(rawOutput);
-  return { status: "generated", tickets: draft.tickets, gaps: draft.gaps };
+  const tickets = draft.tickets.map((ticket) => ({
+    ...ticket,
+    storyPoints: getStoryPoints(ticket.specDefinition, ticket.complexity, ticket.size),
+  }));
+  return { status: "generated", tickets, gaps: draft.gaps };
 }
